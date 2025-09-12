@@ -22,6 +22,7 @@ import { TagLibraryProvider } from "@/context/TagLibraryContext";
 import { ThemeProvider, useTheme } from "@/lib/ThemeContext";
 import { I18nProvider } from "@/lib/i18n/I18nContext";
 
+import { DateRangeProvider } from "@/context/DateRangeContext";
 import { enableFreeze } from "react-native-screens";
 enableFreeze(true);
 
@@ -54,13 +55,15 @@ const StatusBarController = React.memo(function StatusBarController({
 
 export default function RootLayout() {
   return (
-    <SafeAreaProvider>
-      <ThemeProvider>
-        <I18nProvider>
-          <AppContent />
-        </I18nProvider>
-      </ThemeProvider>
-    </SafeAreaProvider>
+    <DateRangeProvider>
+      <SafeAreaProvider>
+        <ThemeProvider>
+          <I18nProvider>
+            <AppContent />
+          </I18nProvider>
+        </ThemeProvider>
+      </SafeAreaProvider>
+    </DateRangeProvider>
   );
 }
 

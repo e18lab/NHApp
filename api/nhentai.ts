@@ -14,6 +14,36 @@ const api = axios.create({
   timeout: 10_000,
 });
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const readRetryAfterMs = (headers?: any): number | null => {
+  const raw = headers?.["retry-after"] ?? headers?.["Retry-After"];
+  if (!raw) return null;
+  const s = parseInt(Array.isArray(raw) ? raw[0] : String(raw), 10);
+  return Number.isFinite(s) ? s * 1000 : null;
+};
+
+api.interceptors.response.use(
+  (res) => res,
+  async (err) => {
+    const cfg: any = err?.config ?? {};
+    const status = err?.response?.status;
+    if (!cfg || !status) throw err;
+
+    cfg.__retryCount = cfg.__retryCount ?? 0;
+    const canRetry = (status === 429 || status >= 500) && cfg.__retryCount < 3;
+    if (!canRetry) throw err;
+
+    cfg.__retryCount++;
+    const retryAfter = readRetryAfterMs(err?.response?.headers);
+    const backoff =
+      (retryAfter ?? Math.min(1000 * 2 ** (cfg.__retryCount - 1), 8000)) +
+      Math.floor(Math.random() * 300); // jitter
+
+    await sleep(backoff);
+    return api(cfg);
+  }
+);
+
 export interface Tag {
   id: number;
   type: string;
@@ -406,6 +436,352 @@ export const getFavorites = async (params: {
   };
 };
 
+export type DateSearchPhase =
+  | "idle"
+  | "meta"
+  | "range:start"
+  | "range:end"
+  | "range:probe"
+  | "fetch"
+  | "done";
+
+export type DateSearchProgress = {
+  phase: DateSearchPhase;
+  which?: "start" | "end";
+  bounds?: {
+    lo: number;
+    hi: number;
+    mid: number;
+    decision?: "left" | "right" | "hit";
+  };
+  probe?: { page: number; headSec: number; tailSec: number };
+  window?: { startIndex: number; endIndex: number; total: number };
+};
+
+type Dateish = string | number | Date | null | undefined;
+const toEpochSec = (v?: Dateish): number | null => {
+  if (v == null) return null;
+  if (v instanceof Date) return Math.floor(v.getTime() / 1000);
+  if (typeof v === "number")
+    return v > 1e12 ? Math.floor(v / 1000) : Math.floor(v);
+  if (typeof v === "string" && v.trim()) {
+    const t = Date.parse(v);
+    if (Number.isFinite(t)) return Math.floor(t / 1000);
+  }
+  return null;
+};
+
+type RangeKey = string;
+type RangeInfo = {
+  startIndex: number;
+  endIndex: number;
+  serverPerPage: number;
+  serverNumPages: number;
+  totalItemsExact: number;
+};
+const RANGE_CACHE = new Map<RangeKey, RangeInfo>();
+const RANGE_ORDER: RangeKey[] = [];
+const RANGE_LIMIT = 60;
+
+const PAGE_CACHE = new Map<string, Book[]>();
+const PAGE_ORDER: string[] = [];
+const PAGE_LIMIT = 180;
+
+const putLRU = <T>(
+  map: Map<string, T>,
+  order: string[],
+  limit: number,
+  k: string,
+  v: T
+) => {
+  map.set(k, v);
+  order.push(k);
+  while (order.length > limit) {
+    const old = order.shift()!;
+    map.delete(old);
+  }
+};
+
+type ProbeInfo = { headSec: number; tailSec: number; len: number };
+type SessionKey = string;
+
+interface SearchSession {
+  key: SessionKey;
+  nhQuery: string;
+  sort: string;
+  serverPerPage: number;
+  serverNumPages: number;
+  probes: Map<number, ProbeInfo>;
+  last?: {
+    toSec?: number;
+    fromSec?: number;
+    startIndex?: number;
+    endIndex?: number;
+    startPage?: number;
+    endPage?: number;
+  };
+  createdAt: number;
+  touchedAt: number;
+}
+
+const SESSIONS = new Map<SessionKey, SearchSession>();
+const SESS_ORDER: SessionKey[] = [];
+const SESS_LIMIT = 20;
+
+const putSession = (s: SearchSession) => {
+  s.touchedAt = Date.now();
+  if (!SESSIONS.has(s.key)) SESS_ORDER.push(s.key);
+  SESSIONS.set(s.key, s);
+  while (SESS_ORDER.length > SESS_LIMIT) {
+    const old = SESS_ORDER.shift()!;
+    SESSIONS.delete(old);
+  }
+};
+
+const makeSessionKey = (nhQuery: string, sort: string): SessionKey =>
+  `sess::${sort || "date"}::${nhQuery}`;
+
+const getOrCreateSession = (
+  nhQuery: string,
+  sort: string,
+  serverPerPage: number,
+  serverNumPages: number
+): SearchSession => {
+  const key = makeSessionKey(nhQuery, sort || "date");
+  let s = SESSIONS.get(key);
+  if (!s) {
+    s = {
+      key,
+      nhQuery,
+      sort: sort || "date",
+      serverPerPage,
+      serverNumPages,
+      probes: new Map(),
+      createdAt: Date.now(),
+      touchedAt: Date.now(),
+    };
+  } else {
+    s.serverPerPage = serverPerPage;
+    s.serverNumPages = serverNumPages;
+  }
+  putSession(s);
+  return s;
+};
+
+const rememberProbe = (sess: SearchSession, page: number, info: ProbeInfo) => {
+  sess.probes.set(page, info);
+  putSession(sess);
+};
+const getProbe = (sess: SearchSession, page: number): ProbeInfo | undefined =>
+  sess.probes.get(page);
+
+async function fetchSearchPage(
+  nhQuery: string,
+  sort?: string,
+  p?: number,
+  per?: number
+): Promise<readonly Book[]> {
+  const sortKey = sort && sort.trim() ? sort : undefined;
+  const key = `${nhQuery}||${sortKey ?? "default"}||${p}`;
+  if (PAGE_CACHE.has(key)) return PAGE_CACHE.get(key)!;
+
+  const { data } = await api.get("/galleries/search", {
+    params: {
+      query: nhQuery,
+      page: p,
+      ...(sortKey ? { sort: sortKey } : {}),
+      ...(per ? { per_page: per } : {}),
+    },
+  });
+  const arr = Array.isArray(data?.result) ? data.result : [];
+  const books = arr.map(parseBookData) as Book[];
+  putLRU(PAGE_CACHE, PAGE_ORDER, PAGE_LIMIT, key, books);
+  return books;
+}
+
+async function probePageDates(
+  nhQuery: string,
+  sort: string,
+  p: number,
+  perPage: number,
+  sess?: SearchSession
+) {
+  const { data } = await api.get("/galleries/search", {
+    params: { query: nhQuery, page: p, sort, per_page: perPage },
+  });
+  const arr: any[] = Array.isArray(data?.result) ? data.result : [];
+  const len = arr.length;
+  const headSec = Math.floor(arr[0]?.upload_date ?? 0);
+  const tailSec = Math.floor(arr[len - 1]?.upload_date ?? headSec ?? 0);
+  if (sess) rememberProbe(sess, p, { headSec, tailSec, len });
+  return { headSec, tailSec, len };
+}
+function seededBounds(
+  sess: SearchSession,
+  cutoffSec: number,
+  which: "start" | "end"
+): { lo: number; hi: number } | null {
+  const N = sess.serverNumPages;
+
+  const prevPage =
+    which === "start" ? sess.last?.startPage : sess.last?.endPage;
+  if (prevPage && prevPage >= 1 && prevPage <= N) {
+    const seen = getProbe(sess, prevPage);
+    if (seen) {
+      const newer = seen.headSec;
+      const older = seen.tailSec;
+      const fits = older <= cutoffSec && newer > cutoffSec;
+      if (fits) return { lo: prevPage, hi: prevPage };
+    }
+    return { lo: Math.max(1, prevPage - 8), hi: Math.min(N + 1, prevPage + 8) };
+  }
+
+  if (sess.probes.size >= 3) {
+    let below: { page: number; val: number } | null = null;
+    let above: { page: number; val: number } | null = null;
+    for (const [page, info] of sess.probes.entries()) {
+      const v = info.headSec;
+      if (v > cutoffSec) {
+        if (!above || page < above.page) above = { page, val: v };
+      } else {
+        if (!below || page > below.page) below = { page, val: v };
+      }
+    }
+    if (above && below && above.page > below.page) {
+      const p1 = below.page,
+        v1 = below.val;
+      const p2 = above.page,
+        v2 = above.val;
+      const ratio = (v1 - cutoffSec) / Math.max(1, v1 - v2);
+      const est = Math.floor(p1 + (p2 - p1) * ratio);
+      const lo = Math.max(1, est - 16);
+      const hi = Math.min(N + 1, est + 16);
+      return { lo, hi };
+    }
+  }
+
+  return null;
+}
+async function findFirstIndexLE(
+  nhQuery: string,
+  sort: string,
+  cutoffSec: number,
+  serverPerPage: number,
+  serverNumPages: number,
+  which: "start" | "end",
+  onProgress?: (p: DateSearchProgress) => void,
+  sess?: SearchSession
+) {
+  const local = new Map<number, ProbeInfo>();
+  const get = async (p: number) => {
+    const known = local.get(p) || (sess && getProbe(sess, p));
+    if (known) return known;
+    const probed = await probePageDates(nhQuery, sort, p, serverPerPage, sess);
+    local.set(p, probed);
+    return probed;
+  };
+
+  let lo = 1,
+    hi = serverNumPages + 1;
+  let seeded = sess ? seededBounds(sess, cutoffSec, which) : null;
+
+  if (seeded) {
+    const left = await get(Math.max(1, seeded.lo));
+    const right = await get(
+      Math.min(serverNumPages, Math.max(1, seeded.hi - 1))
+    );
+    const newestInWindow = left.headSec;
+    const oldestInWindow = right.tailSec;
+    const inside = oldestInWindow <= cutoffSec && cutoffSec < newestInWindow;
+
+    if (inside) {
+      lo = Math.max(1, seeded.lo);
+      hi = Math.min(serverNumPages + 1, seeded.hi);
+    } else {
+      seeded = null;
+      lo = 1;
+      hi = serverNumPages + 1;
+    }
+  }
+
+  while (lo < hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    const { headSec, tailSec } = await get(mid);
+
+    onProgress?.({
+      phase: "range:probe",
+      which,
+      bounds: { lo, hi, mid },
+      probe: { page: mid, headSec, tailSec },
+    });
+
+    if (headSec > cutoffSec) {
+      lo = mid + 1;
+      onProgress?.({
+        phase: "range:probe",
+        which,
+        bounds: { lo, hi, mid, decision: "right" },
+        probe: { page: mid, headSec, tailSec },
+      });
+    } else {
+      hi = mid;
+      onProgress?.({
+        phase: "range:probe",
+        which,
+        bounds: { lo, hi, mid, decision: "left" },
+        probe: { page: mid, headSec, tailSec },
+      });
+    }
+  }
+
+  if (lo === serverNumPages + 1) {
+    const last = await get(serverNumPages);
+    const total = (serverNumPages - 1) * serverPerPage + last.len;
+
+    onProgress?.({
+      phase: "range:probe",
+      which,
+      bounds: { lo, hi, mid: serverNumPages, decision: "hit" },
+    });
+
+    if (sess) {
+      const lastObj = { ...(sess.last || {}) };
+      if (which === "start") lastObj.startPage = serverNumPages;
+      else lastObj.endPage = serverNumPages;
+      sess.last = lastObj;
+      putSession(sess);
+    }
+    return total;
+  }
+
+  const p = Math.min(lo, serverNumPages);
+  const page = await fetchSearchPage(nhQuery, sort, p, serverPerPage);
+  let within = 0;
+  while (within < page.length) {
+    const sec = Math.floor(
+      new Date(page[within].uploaded || 0).getTime() / 1000
+    );
+    if (sec <= cutoffSec) break;
+    within++;
+  }
+
+  onProgress?.({
+    phase: "range:probe",
+    which,
+    bounds: { lo, hi, mid: p, decision: "hit" },
+  });
+
+  if (sess) {
+    const lastObj = { ...(sess.last || {}) };
+    if (which === "start") lastObj.startPage = p;
+    else lastObj.endPage = p;
+    sess.last = lastObj;
+    putSession(sess);
+  }
+
+  return (p - 1) * serverPerPage + within;
+}
+
 interface SearchParams {
   query?: string;
   sort?: string;
@@ -415,6 +791,10 @@ interface SearchParams {
   excludeTags?: TagFilter[];
   filterTags?: TagFilter[];
   contentType?: "new" | "popular" | "";
+  dateFrom?: string | number | Date;
+  dateTo?: string | number | Date;
+  onProgress?: (p: DateSearchProgress) => void;
+  sessionKey?: string;
 }
 
 export const searchBooks = async (
@@ -424,10 +804,14 @@ export const searchBooks = async (
     query = "",
     sort = "",
     page = 1,
-    perPage = 24,
+    perPage: clientPerPageRaw,
     includeTags = params.filterTags ?? [],
     excludeTags = [],
     contentType = "",
+    dateFrom,
+    dateTo,
+    onProgress,
+    sessionKey,
   } = params;
 
   const includePart = includeTags.length
@@ -440,7 +824,11 @@ export const searchBooks = async (
         .map((t) => `-${t.type.replace(/s$/, "")}:"${t.name}"`)
         .join(" ")
     : "";
-  const nhQuery = `${query.trim()} ${includePart} ${excludePart}`.trim() || " ";
+  let nhQuery = [query.trim(), includePart, excludePart]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+  if (!nhQuery) nhQuery = " ";
 
   const allowedSorts = [
     "popular",
@@ -449,57 +837,283 @@ export const searchBooks = async (
     "popular-month",
     "date",
   ];
-  const realSort =
+  const hasDates = dateFrom != null || dateTo != null;
+  let realSort =
     contentType === "new"
       ? "date"
       : contentType === "popular" && !allowedSorts.includes(sort as any)
       ? "popular"
-      : sort;
+      : sort || (hasDates ? "date" : "");
+  if (hasDates && realSort !== "date") realSort = "date";
 
-  const effectivePerPage = Math.min(perPage || 24, 100);
-  const { data } = await api.get("/galleries/search", {
-    params: {
-      query: nhQuery,
-      page: +page || 1,
-      per_page: effectivePerPage,
-      sort: realSort,
+  const pageSafe = Math.max(1, Number(page ?? 1));
+
+  onProgress?.({ phase: "meta" });
+  const metaRes = await api.get("/galleries/search", {
+    params: { query: nhQuery, page: 1, sort: realSort || undefined },
+  });
+  const meta = metaRes.data ?? {};
+  const firstResult = Array.isArray(meta.result) ? meta.result : [];
+  const serverPerPage =
+    Number(meta.per_page) || (firstResult.length > 0 ? firstResult.length : 25);
+  const serverNumPages = Number.isFinite(Number(meta.num_pages))
+    ? Number(meta.num_pages)
+    : firstResult.length > 0
+    ? 1
+    : 0;
+
+  const sess = getOrCreateSession(
+    sessionKey || nhQuery,
+    realSort || "date",
+    serverPerPage,
+    serverNumPages
+  );
+
+  if (!hasDates) {
+    onProgress?.({ phase: "fetch" });
+
+    const totalItemsApprox = serverNumPages * serverPerPage;
+
+    const clientPerPage = Math.max(1, Number(clientPerPageRaw ?? 45));
+    const clientTotalPages = Math.max(
+      1,
+      Math.ceil(totalItemsApprox / clientPerPage)
+    );
+    const clientPage = Math.min(pageSafe, clientTotalPages);
+
+    const startIndex = (clientPage - 1) * clientPerPage;
+    const endIndex = Math.min(totalItemsApprox, startIndex + clientPerPage);
+    const neededCount = Math.max(0, endIndex - startIndex);
+    const startServerPage = Math.floor(startIndex / serverPerPage) + 1;
+    const endServerPage =
+      neededCount > 0
+        ? Math.floor((endIndex - 1) / serverPerPage) + 1
+        : startServerPage;
+
+    const pages = await Promise.all(
+      Array.from({ length: endServerPage - startServerPage + 1 }, (_, i) =>
+        fetchSearchPage(
+          nhQuery,
+          realSort || "",
+          startServerPage + i,
+          serverPerPage
+        )
+      )
+    );
+
+    const merged = ([] as Book[]).concat(...pages);
+    const offsetInFirst = startIndex - (startServerPage - 1) * serverPerPage;
+    let pageItems = merged.slice(
+      Math.max(0, offsetInFirst),
+      Math.max(0, offsetInFirst) + neededCount
+    );
+
+    pageItems = dedupBooks(pageItems);
+
+    void fetchSearchPage(nhQuery, realSort || "", Math.max(1, endServerPage + 1));
+    void fetchSearchPage(nhQuery, realSort || "", Math.max(1, startServerPage - 1));
+
+    onProgress?.({ phase: "done" });
+    return {
+      items: pageItems,
+      books: pageItems,
+      totalPages: clientTotalPages,
+      currentPage: clientPage,
+      totalItems: totalItemsApprox,
+      perPage: clientPerPage,
+    };
+  }
+
+  const toSec = toEpochSec(dateTo);
+  const fromSec = toEpochSec(dateFrom);
+  const toSecAdjusted = toSec == null ? null : toSec + 86399;
+  const fromSecStrictLT = fromSec == null ? null : Math.max(0, fromSec - 1);
+
+  const lastProbe = await probePageDates(
+    nhQuery,
+    realSort,
+    serverNumPages,
+    serverPerPage,
+    sess
+  );
+  const totalExact = (serverNumPages - 1) * serverPerPage + lastProbe.len;
+
+  const rKey = JSON.stringify({
+    nhQuery,
+    realSort,
+    fromSec,
+    toSec,
+    serverPerPage,
+    serverNumPages,
+  });
+
+  let r = RANGE_CACHE.get(rKey);
+  if (!r) {
+    onProgress?.({ phase: "range:start", which: "start" });
+    const startIndex =
+      toSecAdjusted == null
+        ? 0
+        : await findFirstIndexLE(
+            nhQuery,
+            realSort,
+            toSecAdjusted,
+            serverPerPage,
+            serverNumPages,
+            "start",
+            onProgress,
+            sess
+          );
+
+    onProgress?.({ phase: "range:end", which: "end" });
+    const endIndex =
+      fromSecStrictLT == null
+        ? totalExact
+        : await findFirstIndexLE(
+            nhQuery,
+            realSort,
+            fromSecStrictLT,
+            serverPerPage,
+            serverNumPages,
+            "end",
+            onProgress,
+            sess
+          );
+
+    r = {
+      startIndex,
+      endIndex,
+      serverPerPage,
+      serverNumPages,
+      totalItemsExact: totalExact,
+    };
+    putLRU(RANGE_CACHE, RANGE_ORDER, RANGE_LIMIT, rKey, r);
+
+    sess.last = {
+      toSec: toSec ?? undefined,
+      fromSec: fromSec ?? undefined,
+      startIndex,
+      endIndex,
+      startPage: Math.floor(startIndex / serverPerPage) + 1,
+      endPage: Math.floor(Math.max(0, endIndex - 1) / serverPerPage) + 1,
+    };
+    putSession(sess);
+  }
+
+  const windowTotal = Math.max(0, r.endIndex - r.startIndex);
+  onProgress?.({
+    phase: "fetch",
+    window: {
+      startIndex: r.startIndex,
+      endIndex: r.endIndex,
+      total: windowTotal,
     },
   });
 
-  const books = data.result.map(parseBookData) as Book[];
-  const totalPages = data.num_pages || 1;
-  const totalItems = data.total || books.length;
+  const clientPerPage = Math.max(1, Number(clientPerPageRaw ?? 45));
+  const clientTotalPages = Math.max(1, Math.ceil(windowTotal / clientPerPage));
+  const clientPage = Math.min(pageSafe, clientTotalPages);
 
-  if (totalItems > effectivePerPage && books.length < totalItems) {
-    const remainingPages = Math.ceil(
-      (totalItems - books.length) / effectivePerPage
-    );
-    const additionalPages = await Promise.all(
-      Array.from({ length: remainingPages }, (_, i) =>
-        api.get("/galleries/search", {
-          params: {
-            query: nhQuery,
-            page: page + i + 1,
-            per_page: effectivePerPage,
-            sort: realSort,
-          },
-        })
-      )
-    );
-    additionalPages.forEach(({ data }) => {
-      books.push(...data.result.map(parseBookData));
-    });
+  const gEnd = Math.max(
+    r.startIndex,
+    r.endIndex - (clientPage - 1) * clientPerPage
+  );
+  const gStart = Math.max(r.startIndex, gEnd - clientPerPage);
+  const neededCount = Math.max(0, gEnd - gStart);
+
+  if (neededCount <= 0) {
+    onProgress?.({ phase: "done" });
+    return {
+      items: [],
+      books: [],
+      totalPages: clientTotalPages,
+      currentPage: clientPage,
+      totalItems: windowTotal,
+      perPage: clientPerPage,
+    };
   }
 
+  const startServerPage = Math.floor(gStart / serverPerPage) + 1;
+  const endServerPage = Math.floor((gEnd - 1) / serverPerPage) + 1;
+
+  const pages = await Promise.all(
+    Array.from({ length: endServerPage - startServerPage + 1 }, (_, i) =>
+      fetchSearchPage(nhQuery, realSort, startServerPage + i, serverPerPage)
+    )
+  );
+  let bufferStartPage = startServerPage;
+  let buffer = ([] as Book[]).concat(...pages);
+
+  const sliceFromBuffer = (absStart: number, absEnd: number) => {
+    const offset = absStart - (bufferStartPage - 1) * serverPerPage;
+    return buffer.slice(Math.max(0, offset), Math.max(0, offset) + (absEnd - absStart));
+  };
+
+  let pageItems = sliceFromBuffer(gStart, gEnd);
+
+  const dateFilter = (arr: Book[]) =>
+    arr
+      .filter((b) => {
+        const sec = Math.floor(new Date(b.uploaded || 0).getTime() / 1000);
+        const passTo = toSecAdjusted == null || sec <= toSecAdjusted;
+        const passFrom = fromSec == null || sec >= fromSec;
+        return passTo && passFrom;
+      })
+      .reverse();
+
+  pageItems = dateFilter(pageItems);
+
+  const isLastClientPage = clientPage === clientTotalPages;
+  if (isLastClientPage && pageItems.length < clientPerPage) {
+    const targetStart = Math.max(r.startIndex, gEnd - clientPerPage);
+
+    if (targetStart < gStart) {
+      const addStartPage = Math.floor(targetStart / serverPerPage) + 1;
+      if (addStartPage < bufferStartPage) {
+        const addPages = await Promise.all(
+          Array.from({ length: bufferStartPage - addStartPage }, (_, i) =>
+            fetchSearchPage(
+              nhQuery,
+              realSort,
+              addStartPage + i,
+              serverPerPage
+            )
+          )
+        );
+        buffer = ([] as Book[]).concat(([] as Book[]).concat(...addPages), buffer);
+        bufferStartPage = addStartPage;
+      }
+    }
+
+    pageItems = dateFilter(sliceFromBuffer(targetStart, gEnd));
+  }
+
+  pageItems = dedupBooks(pageItems);
+
+  void fetchSearchPage(nhQuery, realSort, Math.max(1, endServerPage + 1), serverPerPage);
+  void fetchSearchPage(nhQuery, realSort, Math.max(1, startServerPage - 1), serverPerPage);
+
+  onProgress?.({ phase: "done" });
   return {
-    items: books,
-    books,
-    totalPages,
-    currentPage: +page || 1,
-    perPage: effectivePerPage,
-    totalItems,
+    items: pageItems,
+    books: pageItems,
+    totalPages: clientTotalPages,
+    currentPage: clientPage,
+    totalItems: windowTotal,
+    perPage: clientPerPage,
   };
 };
+
+function dedupBooks(arr: Book[]): Book[] {
+  const seen = new Set<number>();
+  const out: Book[] = [];
+  for (const b of arr) {
+    if (!seen.has(b.id)) {
+      seen.add(b.id);
+      out.push(b);
+    }
+  }
+  return out;
+}
 
 const siteBase =
   Platform.OS === "web"
@@ -587,6 +1201,90 @@ const bucketOf = (t: Tag["type"]): Bucket =>
 export interface CandidateBook extends Book {
   isExploration?: boolean;
 }
+
+export const searchBooksRecomendation = async (
+  params: SearchParams = {}
+): Promise<Paged<Book>> => {
+  const {
+    query = "",
+    sort = "",
+    page = 1,
+    perPage = 24,
+    includeTags = params.filterTags ?? [],
+    excludeTags = [],
+    contentType = "",
+  } = params;
+
+  const includePart = includeTags.length
+    ? includeTags
+        .map((t) => `${t.type.replace(/s$/, "")}:"${t.name}"`)
+        .join(" ")
+    : "";
+  const excludePart = excludeTags.length
+    ? excludeTags
+        .map((t) => `-${t.type.replace(/s$/, "")}:"${t.name}"`)
+        .join(" ")
+    : "";
+  const nhQuery = `${query.trim()} ${includePart} ${excludePart}`.trim() || " ";
+
+  const allowedSorts = [
+    "popular",
+    "popular-week",
+    "popular-today",
+    "popular-month",
+    "date",
+  ];
+  const realSort =
+    contentType === "new"
+      ? "date"
+      : contentType === "popular" && !allowedSorts.includes(sort as any)
+      ? "popular"
+      : sort;
+
+  const effectivePerPage = Math.min(perPage || 24, 100);
+  const { data } = await api.get("/galleries/search", {
+    params: {
+      query: nhQuery,
+      page: +page || 1,
+      per_page: effectivePerPage,
+      sort: realSort,
+    },
+  });
+
+  const books = data.result.map(parseBookData) as Book[];
+  const totalPages = data.num_pages || 1;
+  const totalItems = data.total || books.length;
+
+  if (totalItems > effectivePerPage && books.length < totalItems) {
+    const remainingPages = Math.ceil(
+      (totalItems - books.length) / effectivePerPage
+    );
+    const additionalPages = await Promise.all(
+      Array.from({ length: remainingPages }, (_, i) =>
+        api.get("/galleries/search", {
+          params: {
+            query: nhQuery,
+            page: page + i + 1,
+            per_page: effectivePerPage,
+            sort: realSort,
+          },
+        })
+      )
+    );
+    additionalPages.forEach(({ data }) => {
+      books.push(...data.result.map(parseBookData));
+    });
+  }
+
+  return {
+    items: books,
+    books,
+    totalPages,
+    currentPage: +page || 1,
+    perPage: effectivePerPage,
+    totalItems,
+  };
+};
 
 export async function getRecommendations(
   p: RecommendParams
@@ -687,7 +1385,7 @@ export async function getRecommendations(
   const excludeIds = new Set(sentIds);
   const candidates = new Map<number, CandidateBook>();
   const fetchPage = async (q: string, pN: number) =>
-    searchBooks({ query: q, sort: "popular", page: pN, perPage })
+    searchBooksRecomendation({ query: q, sort: "popular", page: pN, perPage })
       .then((r) => r.books)
       .catch(() => [] as Book[]);
 

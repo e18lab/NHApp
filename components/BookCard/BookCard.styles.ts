@@ -9,14 +9,12 @@ export function makeCardStyles(
   const S = scale;
 
   const radius = Math.round(cardWidth * 0.1 * S);
-  const coverH = Math.round(cardWidth * 1.28);
+  const coverH = Math.round(cardWidth * 1.4);
   const bodyPad = Math.max(10, Math.round(cardWidth * 0.085 * S));
 
   const newFont = Math.max(10, Math.round(cardWidth * 0.08 * S));
   const newPadX = Math.max(6, Math.round(cardWidth * 0.04 * S));
   const newPadY = Math.max(2, Math.round(cardWidth * 0.03 * S));
-
-  const heartPad = Math.max(6, Math.round(cardWidth * 0.045 * S));
 
   const titleSize = Math.max(12, Math.round(cardWidth * 0.105 * S));
   const subtitleSize = Math.max(11, Math.round(cardWidth * 0.095 * S));
@@ -106,7 +104,6 @@ export function makeCardStyles(
       backgroundColor: colors.tagBg,
       marginRight: tagPadX,
       alignItems: "center",
-      // VERTICAL ITEM CENTER
       justifyContent: "center",
       borderWidth: 2,
       borderColor: "#fff",
@@ -154,7 +151,7 @@ export function makeCardStyles(
     } as ViewStyle,
     favBtn: {
       backgroundColor: "rgba(0,0,0,0.6)",
-      padding: heartPad,
+      padding: Math.max(6, Math.round(cardWidth * 0.045 * S)),
       borderRadius: 999,
     } as ViewStyle,
     favCount: {
@@ -330,5 +327,45 @@ export function makeCardStyles(
       borderWidth: 2,
       borderColor: "#fff",
     } as ViewStyle,
+
+    classicBarBase: {
+      flexDirection: "row",
+      alignItems: "flex-start",
+      paddingHorizontal: 0,
+      paddingVertical: 0,
+      backgroundColor: "rgba(39,39,39,0.9)",
+      borderTopWidth: 0,
+      borderBottomLeftRadius: radius,
+      borderBottomRightRadius: radius,
+    } as ViewStyle,
+    classicBarAbs: {
+      position: "absolute",
+      left: 0,
+      right: 0,
+      bottom: 0,
+      overflow: "hidden",
+      zIndex: 2,
+    } as ViewStyle,
+    classicInner: {
+      flex: 1,
+      alignSelf: "stretch",
+      justifyContent: "flex-start",
+    } as ViewStyle,
+    classicSeamFix: {
+      position: "absolute",
+      left: 0,
+      right: 0,
+      bottom: -1,
+      height: 2,
+      backgroundColor: "rgba(39,39,39,0.9)",
+    } as ViewStyle,
+    classicTitle: {
+      flex: 1,
+      color: "#d9d9d9",
+      fontWeight: "700",
+      fontSize: Math.max(12, Math.round(cardWidth * 0.08 * S)),
+      lineHeight: Math.max(14, Math.round(cardWidth * 0.09 * S)),
+      textAlign: "center",
+    } as TextStyle,
   };
 }

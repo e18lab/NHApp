@@ -1,12 +1,13 @@
 import { CandidateBook, getRecommendations } from "@/api/nhentai";
 import BookList from "@/components/BookList";
+import NoResultsPanel from "@/components/NoResultsPanel";
 import { useFilterTags } from "@/context/TagFilterContext";
 import { useGridConfig } from "@/hooks/useGridConfig";
 import { useTheme } from "@/lib/ThemeContext";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect, useRouter } from "expo-router";
-import React, { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { ActivityIndicator, StyleSheet, View } from "react-native";
 
 type RecBook = CandidateBook & { explain: string[]; score: number };
 
@@ -24,7 +25,7 @@ export default function RecommendationsScreen() {
   const [hasMore, setHasMore] = useState(true);
   const gridConfig = useGridConfig();
 
-  const perPage = 20;
+  const perPage = 50;
 
   useEffect(() => {
     AsyncStorage.getItem("bookFavorites").then((j) => {
@@ -117,42 +118,62 @@ export default function RecommendationsScreen() {
   const maxScore =
     books.length > 0 ? Math.max(...books.map((b) => b.score)) : 1;
 
+  const emptyTitle =
+    favIds.length === 0
+      ? "Нет рекомендаций — добавь книги в избранное"
+      : "Рекомендаций пока нет";
+  const emptySubtitle =
+    favIds.length === 0
+      ? "Поставь несколько лайков — я подберу похожее."
+      : "Попробуй изменить фильтры или обновить список.";
+  const emptyActions = useMemo(
+    () => [
+      { label: "Открыть избранное", onPress: () => router.push("/favorites") },
+      { label: "Открыть фильтры", onPress: () => router.push("/tags") },
+    ],
+    [router]
+  );
+
   return (
     <View style={[styles.container, { backgroundColor: colors.bg }]}>
       {loading && books.length === 0 ? (
         <ActivityIndicator style={{ flex: 1 }} />
       ) : (
-        <BookList
-        
-          data={books}
-          loading={loading}
-          refreshing={refreshing}
-          onRefresh={onRefresh}
-          onToggleFavorite={toggleFav}
-          onEndReached={hasMore ? loadMoreRecommendations : undefined}
-          getScore={(b) =>
-            typeof b.score === "number"
-              ? Math.round((b.score / maxScore) * 100)
-              : undefined
-          }
-          onPress={(id) =>
-            router.push({
-              pathname: "/book/[id]",
-              params: {
-                id: String(id),
-                title: books.find((b) => b.id === id)?.title.pretty,
-              },
-            })
-          }
-          ListEmptyComponent={
-            !loading && books.length === 0 ? (
-              <Text style={[styles.emptyText, { color: colors.sub }]}>
-                Нет рекомендаций
-              </Text>
-            ) : null
-          }
-          gridConfig={{ default: gridConfig }}
-        />
+        <>
+          <BookList
+            data={books}
+            loading={loading}
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            onToggleFavorite={toggleFav}
+            onEndReached={hasMore ? loadMoreRecommendations : undefined}
+            getScore={(b) =>
+              typeof b.score === "number"
+                ? Math.round((b.score / maxScore) * 100)
+                : undefined
+            }
+            onPress={(id) =>
+              router.push({
+                pathname: "/book/[id]",
+                params: {
+                  id: String(id),
+                  title: books.find((b) => b.id === id)?.title.pretty,
+                },
+              })
+            }
+            ListEmptyComponent={
+              !loading && books.length === 0 ? (
+                <NoResultsPanel
+                  title={emptyTitle}
+                  subtitle={emptySubtitle}
+                  iconName="star"
+                  actions={emptyActions}
+                />
+              ) : null
+            }
+            gridConfig={{ default: gridConfig }}
+          />
+        </>
       )}
     </View>
   );
@@ -160,5 +181,4 @@ export default function RecommendationsScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  emptyText: { textAlign: "center", marginTop: 40 },
 });

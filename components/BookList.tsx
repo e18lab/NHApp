@@ -1,9 +1,11 @@
 import { Book } from "@/api/nhentai";
+import { useFavHistory } from "@/hooks/useFavHistory";
 import { useTheme } from "@/lib/ThemeContext";
 import { LinearGradient } from "expo-linear-gradient";
 import React, {
   ReactElement,
   ReactNode,
+  useCallback,
   useMemo,
   useRef,
   useState,
@@ -20,7 +22,6 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
-import AnimatedRe, { FadeOut } from "react-native-reanimated";
 import BookCard from "./BookCard";
 
 export interface GridConfig {
@@ -28,6 +29,7 @@ export interface GridConfig {
   minColumnWidth?: number;
   paddingHorizontal?: number;
   columnGap?: number;
+  cardDesign?: "classic" | "stable" | "image";
 }
 
 export interface BookListProps<T extends Book = Book> {
@@ -52,10 +54,10 @@ export interface BookListProps<T extends Book = Book> {
   };
   horizontal?: boolean;
   background?: string;
-
   getScore?: (book: T) => number | undefined;
   columnWrapperStyle?: any;
   children?: ReactNode;
+  cardDesign?: "classic" | "stable" | "image";
 }
 
 export default function BookList<T extends Book = Book>({
@@ -77,10 +79,13 @@ export default function BookList<T extends Book = Book>({
   getScore,
   columnWrapperStyle,
   children,
+  cardDesign,
 }: BookListProps<T>) {
   const { colors } = useTheme();
   const listRef = useRef<FlatList<T>>(null);
   const { width, height } = useWindowDimensions();
+
+  const { favoritesSet, historyMap, toggleFavorite } = useFavHistory();
 
   const themeBg =
     background ??
@@ -92,7 +97,6 @@ export default function BookList<T extends Book = Book>({
   const base = useMemo<GridConfig>(() => {
     const isPortrait = height > width;
     const isTablet = width > 600;
-
     return isTablet
       ? gridConfig?.tabletLandscape ??
           gridConfig?.tabletPortrait ??
@@ -102,53 +106,69 @@ export default function BookList<T extends Book = Book>({
       : gridConfig?.phonePortrait ?? gridConfig?.default ?? { numColumns: 2 };
   }, [width, height, gridConfig]);
 
-  const { cols, cardWidth, columnGap, paddingHorizontal, uniqueData } =
-    useMemo(() => {
-      const padH = base.paddingHorizontal ?? 0;
-      const gap = base.columnGap ?? 0;
-      const minW = base.minColumnWidth ?? 160;
-      const avail = Math.max(0, width - padH * 2);
+  const chosenDesign: "classic" | "stable" | "image" =
+    cardDesign ?? base.cardDesign ?? "classic";
 
-      // уникальные книги
-      const uniq = (() => {
-        const seen = new Set<number>();
-        return data.filter((b) =>
-          seen.has(b.id) ? false : (seen.add(b.id), true)
-        );
-      })();
+  const {
+    cols,
+    cardWidth,
+    columnGap,
+    paddingHorizontal,
+    uniqueData,
+    estCardH,
+  } = useMemo(() => {
+    const padH = base.paddingHorizontal ?? 0;
+    const gap = base.columnGap ?? 0;
+    const minW = base.minColumnWidth ?? (chosenDesign === "image" ? 40 : 80);
+    const avail = Math.max(0, width - padH * 2);
 
-      if (horizontal) {
-        const cap = width >= 1000 ? 260 : width >= 768 ? 240 : 210;
-        const visible = Math.max(1, base.numColumns || 3);
-        const w = (avail - gap * (visible - 1)) / visible;
-        return {
-          cols: 1,
-          cardWidth: Math.min(Math.max(minW, w), cap),
-          columnGap: gap,
-          paddingHorizontal: padH,
-          uniqueData: uniq,
-        };
-      }
-
-      const maxCols = Math.max(
-        1,
-        Math.min(base.numColumns, Math.floor((avail + gap) / (minW + gap)))
+    const uniq = (() => {
+      const seen = new Set<number>();
+      return data.filter((b) =>
+        seen.has(b.id) ? false : (seen.add(b.id), true)
       );
-      const cardW = (avail - gap * (maxCols - 1)) / maxCols;
+    })();
 
+    if (horizontal) {
+      const cap = width >= 1000 ? 260 : width >= 768 ? 240 : 210;
+      const visible = Math.max(1, base.numColumns || 3);
+      const w = (avail - gap * (visible - 1)) / visible;
+      const cw = Math.min(Math.max(minW, w), cap);
+      const estH =
+        chosenDesign === "image"
+          ? Math.round(cw * 1.05)
+          : Math.round(cw * 1.35);
       return {
-        cols: maxCols,
-        cardWidth: cardW,
+        cols: 1,
+        cardWidth: cw,
         columnGap: gap,
         paddingHorizontal: padH,
         uniqueData: uniq,
+        estCardH: estH,
       };
-    }, [data, width, base, horizontal]);
+    }
+
+    const maxCols = Math.max(
+      1,
+      Math.min(base.numColumns, Math.floor((avail + gap) / (minW + gap)))
+    );
+    const cw = (avail - gap * (maxCols - 1)) / maxCols;
+    const estH =
+      chosenDesign === "image" ? Math.round(cw * 1.05) : Math.round(cw * 1.35);
+
+    return {
+      cols: maxCols,
+      cardWidth: cw,
+      columnGap: gap,
+      paddingHorizontal: padH,
+      uniqueData: uniq,
+      estCardH: estH,
+    };
+  }, [data, width, base, horizontal, chosenDesign]);
 
   const isSingleCol = !horizontal && cols === 1;
   const contentScale = isSingleCol ? 0.45 : 0.65;
 
-  // edge fade
   const [containerW, setContainerW] = useState(0);
   const [contentW, setContentW] = useState(0);
   const [scrollX, setScrollX] = useState(0);
@@ -179,58 +199,91 @@ export default function BookList<T extends Book = Book>({
     updateFades(x, contentW, containerW);
   };
 
-  // рендер карточки
-  const defaultRender: ListRenderItem<T> = ({ item, index }) => {
-    const isLastInRow = !horizontal && (index + 1) % cols === 0;
-    const isLastHoriz = horizontal && index === uniqueData.length - 1;
+  const renderCard: ListRenderItem<T> = useCallback(
+    ({ item, index }) => {
+      const isLastInRow = !horizontal && (index + 1) % cols === 0;
+      const isLastHoriz = horizontal && index === uniqueData.length - 1;
+      const favChecked =
+        favoritesSet.has(item.id) || isFavorite?.(item.id) || false;
 
-    return (
-      <AnimatedRe.View
-        exiting={FadeOut.duration(300)}
-        style={{
-          width: cardWidth,
-          marginRight: horizontal
-            ? isLastHoriz
+      return (
+        <View
+          style={{
+            width: cardWidth,
+            marginRight: horizontal
+              ? isLastHoriz
+                ? 0
+                : columnGap
+              : isLastInRow
               ? 0
-              : columnGap
-            : isLastInRow
-            ? 0
-            : columnGap,
-          marginBottom: horizontal ? 0 : columnGap,
-          ...(isSingleCol && { alignSelf: "center" }),
-        }}
-      >
-        <BookCard
-          book={item}
-          cardWidth={cardWidth}
-          isSingleCol={isSingleCol}
-          contentScale={contentScale}
-          isFavorite={isFavorite?.(item.id) ?? false}
-          onToggleFavorite={onToggleFavorite}
-          onPress={() => onPress?.(item.id)}
-          score={getScore?.(item)}
-        />
-      </AnimatedRe.View>
-    );
-  };
+              : columnGap,
+            marginBottom: horizontal ? 0 : columnGap,
+            ...(isSingleCol && { alignSelf: "center" }),
+          }}
+        >
+          <BookCard
+            design={chosenDesign}
+            book={item}
+            cardWidth={cardWidth}
+            isSingleCol={isSingleCol}
+            contentScale={contentScale}
+            isFavorite={favChecked}
+            onToggleFavorite={(id, next) => {
+              toggleFavorite(id, next);
+              onToggleFavorite?.(id, next);
+            }}
+            onPress={() => onPress?.(item.id)}
+            score={getScore?.(item)}
+            favoritesSet={favoritesSet}
+            historyMap={historyMap}
+            hydrateFromStorage={false}
+          />
+        </View>
+      );
+    },
+    [
+      horizontal,
+      cols,
+      uniqueData.length,
+      favoritesSet,
+      isFavorite,
+      cardWidth,
+      columnGap,
+      isSingleCol,
+      chosenDesign,
+      contentScale,
+      toggleFavorite,
+      onToggleFavorite,
+      onPress,
+      getScore,
+      historyMap,
+    ]
+  );
 
   const Empty = () => (
     <View style={styles.empty}>
-      <AnimatedRe.Text entering={FadeOut.duration(400)} style={styles.emptyText}>
+      <Animated.Text style={styles.emptyText}>
         Ничего не найдено ¯\_(ツ)_/¯
-      </AnimatedRe.Text>
+      </Animated.Text>
     </View>
   );
 
-  const listKey = horizontal ? `row-${Math.round(cardWidth)}` : `cols-${cols}`;
+  const listKey = horizontal
+    ? `row-${Math.round(cardWidth)}-${chosenDesign}`
+    : `cols-${cols}-${chosenDesign}`;
 
-  const getItemLayout = horizontal
-    ? (_: any, index: number) => ({
+  const rowHeight = estCardH + (horizontal ? 0 : columnGap);
+  const getItemLayout = !horizontal
+    ? (_: any, index: number) => {
+        const row = Math.floor(index / cols);
+        const offset = paddingHorizontal / 2 + row * rowHeight;
+        return { length: rowHeight, offset, index };
+      }
+    : (_: any, index: number) => ({
         length: cardWidth + columnGap,
         offset: (cardWidth + columnGap) * index,
         index,
-      })
-    : undefined;
+      });
 
   const topPad = paddingHorizontal / 2;
   const bottomPad = paddingHorizontal / 2;
@@ -257,7 +310,7 @@ export default function BookList<T extends Book = Book>({
             snapToAlignment={horizontal ? "start" : undefined}
             data={uniqueData}
             keyExtractor={(item) => String(item.id)}
-            renderItem={renderItem ?? defaultRender}
+            renderItem={renderItem ?? renderCard}
             refreshControl={
               <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
             }
@@ -282,24 +335,33 @@ export default function BookList<T extends Book = Book>({
                 ? [{ justifyContent: "center" }, columnWrapperStyle]
                 : undefined
             }
-            getItemLayout={getItemLayout}
+            getItemLayout={getItemLayout as any}
             onContentSizeChange={(w) => {
               setContentW(w);
               updateFades(scrollX, w, containerW);
             }}
             onScroll={horizontal ? onScroll : undefined}
             scrollEventThrottle={16}
-            removeClippedSubviews={horizontal ? false : undefined}
+            removeClippedSubviews
+            windowSize={7}
+            maxToRenderPerBatch={10}
+            initialNumToRender={Math.min(12, uniqueData.length)}
+            updateCellsBatchingPeriod={40}
           />
 
-          {/* Edge fade — плавное появление/исчезновение */}
           {horizontal && (
             <>
               <Animated.View
                 pointerEvents="none"
                 style={[
                   styles.fade,
-                  { left: 0, width: fadeWidth, top: 0, bottom: 0, opacity: fadeLeft },
+                  {
+                    left: 0,
+                    width: fadeWidth,
+                    top: 0,
+                    bottom: 0,
+                    opacity: fadeLeft,
+                  },
                 ]}
               >
                 <LinearGradient
@@ -309,12 +371,17 @@ export default function BookList<T extends Book = Book>({
                   style={StyleSheet.absoluteFill}
                 />
               </Animated.View>
-
               <Animated.View
                 pointerEvents="none"
                 style={[
                   styles.fade,
-                  { right: 0, width: fadeWidth, top: 0, bottom: 0, opacity: fadeRight },
+                  {
+                    right: 0,
+                    width: fadeWidth,
+                    top: 0,
+                    bottom: 0,
+                    opacity: fadeRight,
+                  },
                 ]}
               >
                 <LinearGradient

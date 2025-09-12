@@ -1,12 +1,14 @@
-// components/SearchBar.tsx
+// components/SearchBar.tsx (или app/SearchBar, как у тебя)
 import { Feather } from "@expo/vector-icons";
 import { useGlobalSearchParams, usePathname, useRouter } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import Animated from "react-native-reanimated";
 
+import DateRangePicker from "@/components/DateRangePicker";
 import { useDrawer } from "@/components/DrawerContext";
 import NhModal from "@/components/nhModal";
+import { useDateRange } from "@/context/DateRangeContext";
 import { SortKey, useSort } from "@/context/SortContext";
 import { useTheme } from "@/lib/ThemeContext";
 import { useI18n } from "@/lib/i18n/I18nContext";
@@ -19,7 +21,6 @@ function hasSeg(pathname: string | null | undefined, seg: string) {
   return new RegExp(`(^|/)${seg}(\\/|$)`).test(p);
 }
 
-/** Круглая иконка-кнопка без «квадратов» при удержании */
 function IconBtn({
   onPress,
   onLongPress,
@@ -50,7 +51,7 @@ export function SearchBar() {
   const { sort, setSort } = useSort();
   const router = useRouter();
   const pathname = usePathname();
-
+  const { from, to, setRange, clearRange } = useDateRange();
   const { t } = useI18n();
 
   const SORT_OPTIONS: { key: SortKey; label: string }[] = [
@@ -61,22 +62,14 @@ export function SearchBar() {
     { key: "date", label: t("explore.sort.latest") },
   ];
 
-  const params = useGlobalSearchParams<{
-    query?: string | string[];
-    id?: string | string[];
-    title?: string | string[];
-    slug?: string | string[];
-  }>();
-
+  const params = useGlobalSearchParams<{ query?: string | string[]; id?: string | string[]; title?: string | string[]; slug?: string | string[] }>();
   const q = typeof params.query === "string" ? params.query : "";
   const rawId = Array.isArray(params.id) ? params.id[0] : params.id;
   const bookId = typeof rawId === "string" ? rawId : undefined;
   const rawTitle = Array.isArray(params.title) ? params.title[0] : params.title;
   const bookTitle = typeof rawTitle === "string" ? rawTitle : undefined;
-
   const rawSlug = Array.isArray(params.slug) ? params.slug[0] : params.slug;
-  const userName =
-    typeof rawSlug === "string" ? decodeURIComponent(rawSlug) : undefined;
+  const userName = typeof rawSlug === "string" ? decodeURIComponent(rawSlug) : undefined;
 
   function getTitle(
     pathname: string | null | undefined,
@@ -86,18 +79,15 @@ export function SearchBar() {
   ) {
     const p = pathname ?? "";
     const has = (seg: string) => new RegExp(`(^|/)${seg}(\\/|$)`).test(p);
-
     if (p === "/" || has("index")) return t("menu.home");
-    if (has("explore"))
-      return q ? t("search.results") + ": " + q : t("menu.explore");
+    if (has("explore")) return q ? t("search.results") + ": " + q : t("menu.explore");
     if (has("favorites") || has("favoritesOnline")) return t("menu.favorites");
     if (has("downloaded")) return t("menu.downloaded");
     if (has("recommendations")) return t("menu.recommendations");
     if (has("history")) return t("menu.history");
     if (has("settings")) return t("menu.settings");
     if (has("book")) return `#${bookId} - ${bookTitle}`;
-    if (has("search"))
-      return q ? t("menu.search") + ": " + q : t("menu.search");
+    if (has("search")) return q ? t("menu.search") + ": " + q : t("menu.search");
     if (has("tags")) return t("menu.tags");
     if (has("profile")) return `${t("menu.profile")}: ${userName}`;
     return "NH App";
@@ -106,6 +96,7 @@ export function SearchBar() {
   const [sortOpen, setSortOpen] = useState(false);
   const [tempSort, setTmp] = useState<SortKey>(sort);
   const [backOpen, setBackOpen] = useState(false);
+  const [dateModalOpen, setDateModalOpen] = useState(false);
 
   useEffect(() => setTmp(sort), [sort]);
 
@@ -115,7 +106,6 @@ export function SearchBar() {
   );
   const showBack = pathname && pathname !== "/" && pathname !== "/index";
 
-  // скрываем кнопки справа на страницах, где они не нужны
   const hideRight =
     hasSeg(pathname, "settings") ||
     hasSeg(pathname, "tags") ||
@@ -143,6 +133,10 @@ export function SearchBar() {
     setBackOpen(false);
     router.replace("/");
   };
+
+  const fmt = (d?: any) => (d ? new Date(d).toLocaleDateString() : "—");
+  const rangeLabel = useMemo(() => `${fmt(from)}  •  ${fmt(to)}`, [from, to]);
+  const hasDateFilter = !!from || !!to;
 
   return (
     <View>
@@ -185,9 +179,15 @@ export function SearchBar() {
             >
               <Feather name="search" size={18} color={colors.searchTxt} />
             </IconBtn>
+
+            <IconBtn onPress={() => setDateModalOpen(true)}>
+              <Feather name="calendar" size={18} color={colors.accent} />
+            </IconBtn>
+
             <IconBtn onPress={openSort}>
               <Feather name="filter" size={18} color={colors.accent} />
             </IconBtn>
+
             <IconBtn onPress={() => router.push("/tags")}>
               <Feather name="tag" size={18} color={colors.accent} />
             </IconBtn>
@@ -202,7 +202,7 @@ export function SearchBar() {
         dimBackground
         sheetStyle={{ backgroundColor: colors.searchBg, borderColor: colors.page }}
         title={t("explore.sortBy")}
-        hint={t("common.chooseOption") /* есть в i18n? если нет — можно убрать */}
+        hint={t("common.chooseOption")}
       >
         <ScrollView
           style={styles.sheetScroll}
@@ -229,9 +229,49 @@ export function SearchBar() {
               {key === tempSort && <Feather name="check" size={16} color={colors.accent} />}
             </Pressable>
           ))}
+
+          <View style={{ marginTop: 10, paddingHorizontal: 0 }}>
+            <Text
+              style={{
+                color: colors.searchTxt,
+                opacity: 0.7,
+                marginBottom: 4,
+                fontWeight: "700",
+              }}
+            >
+              {t("explore.dateRange") || "Дата (диапазон)"}
+            </Text>
+
+            <Pressable
+              style={[styles.sortRow, styles.rounded]}
+              onPress={() => setDateModalOpen(true)}
+            >
+              <Text style={[styles.sortTxt, { color: colors.searchTxt }]}>
+                {rangeLabel}
+              </Text>
+              <Feather name="calendar" size={16} color={colors.accent} />
+            </Pressable>
+
+            {hasDateFilter && (
+              <Pressable
+                style={[styles.sortRow, styles.rounded]}
+                onPress={clearRange}
+              >
+                <Text
+                  style={[
+                    styles.sortTxt,
+                    { color: colors.accent, fontWeight: "700" },
+                  ]}
+                >
+                  {t("common.reset") || "Сбросить даты"}
+                </Text>
+                <Feather name="x" size={16} color={colors.accent} />
+              </Pressable>
+            )}
+          </View>
         </ScrollView>
 
-        <View style={styles.sheetFooter}>
+        <View className="footer" style={styles.sheetFooter}>
           <Pressable
             style={[styles.footerBtn, styles.rounded, { backgroundColor: colors.accent }]}
             onPress={() => {
@@ -266,6 +306,26 @@ export function SearchBar() {
             <Text style={[styles.sortTxt, { color: colors.searchTxt }]}>{t("searchBar.backHome")}</Text>
           </Pressable>
         </ScrollView>
+      </NhModal>
+
+      <NhModal
+        visible={dateModalOpen}
+        onClose={() => setDateModalOpen(false)}
+        sheetStyle={{ backgroundColor: colors.searchBg, borderColor: colors.page }}
+        title="Выбор даты"
+      >
+        <DateRangePicker
+          initialFrom={from ? new Date(from as any) : null}
+          initialTo={to ? new Date(to as any) : null}
+          onClear={() => {
+            clearRange();
+            setDateModalOpen(false);
+          }}
+          onApply={({ from: f, to: t }) => {
+            setRange(f ?? null, t ?? null);
+            setDateModalOpen(false);
+          }}
+        />
       </NhModal>
     </View>
   );
@@ -303,7 +363,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
-  sheetScroll: { },
+  sheetScroll: {},
   sortRow: {
     flexDirection: "row",
     alignItems: "center",

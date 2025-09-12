@@ -1,7 +1,14 @@
 import { Book } from "@/api/nhentai";
 import { format, Locale } from "date-fns";
 import { enUS, ja, ru, zhCN } from "date-fns/locale";
-import React, { ReactElement, ReactNode, useMemo, useRef } from "react";
+import React, {
+  ReactElement,
+  ReactNode,
+  useCallback,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   ActivityIndicator,
   RefreshControl,
@@ -13,8 +20,8 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
-import Animated, { FadeOut } from "react-native-reanimated";
 
+import { useFavHistory } from "@/hooks/useFavHistory";
 import { useTheme } from "@/lib/ThemeContext";
 import { useI18n } from "@/lib/i18n/I18nContext";
 import BookCard from "./BookCard";
@@ -27,25 +34,22 @@ export interface GridConfig {
   minColumnWidth?: number;
   paddingHorizontal?: number;
   columnGap?: number;
+  cardDesign?: "classic" | "stable" | "image";
 }
 
 export interface BookListHistoryProps<T extends Book = Book> {
   data: T[];
   historyIndex: Record<number, ReadHistoryEntry>;
-
   loading: boolean;
   refreshing: boolean;
   onRefresh: () => Promise<void>;
   onEndReached?: () => void;
-
   ListEmptyComponent?: ReactNode;
   ListFooterComponent?: ReactElement | null;
   ListHeaderComponent?: ReactElement | null;
-
   isFavorite?: (id: number) => boolean;
   onToggleFavorite?: (id: number, next: boolean) => void;
   onPress?: (id: number) => void;
-
   gridConfig?: {
     phonePortrait?: GridConfig;
     phoneLandscape?: GridConfig;
@@ -53,12 +57,11 @@ export interface BookListHistoryProps<T extends Book = Book> {
     tabletLandscape?: GridConfig;
     default?: GridConfig;
   };
-
   getScore?: (book: T) => number | undefined;
   children?: ReactNode;
+  cardDesign?: "classic" | "stable" | "image";
 }
 
-/** В одном ряду — несколько BookCard */
 type RowItem<T extends Book> = {
   book: T;
   ts: number;
@@ -89,11 +92,27 @@ export default function BookListHistory<T extends Book = Book>({
   gridConfig,
   getScore,
   children,
+  cardDesign,
 }: BookListHistoryProps<T>) {
   const { colors } = useTheme();
   const { t, resolved } = useI18n();
   const listRef = useRef<SectionList<SectionRow<T>>>(null);
   const { width, height } = useWindowDimensions();
+
+  const { favoritesSet, toggleFavorite } = useFavHistory();
+
+  const historyMap = useMemo(() => {
+    const m: Record<number, { current: number; total: number; ts: number }> =
+      {};
+    for (const [idStr, entry] of Object.entries(historyIndex || {})) {
+      const id = Number(idStr);
+      const cur = Math.max(0, Math.floor(Number(entry?.[1]) || 0));
+      const total = Math.max(1, Math.floor(Number(entry?.[2]) || 1));
+      const ts = Math.floor(Number(entry?.[3]) || 0);
+      m[id] = { current: Math.min(cur, total - 1), total, ts };
+    }
+    return m;
+  }, [historyIndex]);
 
   const { dateLocale, timePattern } = useMemo(() => {
     const loc: Locale =
@@ -111,7 +130,6 @@ export default function BookListHistory<T extends Book = Book>({
   const base = useMemo<GridConfig>(() => {
     const isPortrait = height > width;
     const isTablet = width > 600;
-
     return isTablet
       ? gridConfig?.tabletLandscape ??
           gridConfig?.tabletPortrait ??
@@ -124,26 +142,33 @@ export default function BookListHistory<T extends Book = Book>({
   const layout = useMemo(() => {
     const padH = base.paddingHorizontal ?? 0;
     const gap = base.columnGap ?? 0;
-    const minW = base.minColumnWidth ?? 120;
+    const chosenDesign: "classic" | "stable" | "image" =
+      cardDesign ?? base.cardDesign ?? "classic";
+    const minW = base.minColumnWidth ?? (chosenDesign === "image" ? 40 : 80);
     const avail = width - padH * 2;
-
     const maxCols = Math.max(
       1,
       Math.min(base.numColumns, Math.floor((avail + gap) / (minW + gap)))
     );
     const cardW = (avail - gap * (maxCols - 1)) / maxCols;
-
+    const estH =
+      chosenDesign === "image"
+        ? Math.round(cardW * 1.05)
+        : Math.round(cardW * 1.35);
     return {
       cols: maxCols,
       cardWidth: cardW,
       columnGap: gap,
       paddingHorizontal: padH,
+      estCardH: estH,
     };
-  }, [width, base]);
+  }, [width, base, cardDesign]);
 
-  const { cols, cardWidth, columnGap, paddingHorizontal } = layout;
+  const { cols, cardWidth, columnGap, paddingHorizontal, estCardH } = layout;
   const isSingleCol = cols === 1;
   const contentScale = isSingleCol ? 0.45 : 0.65;
+  const chosenDesign: "classic" | "stable" | "image" =
+    cardDesign ?? base.cardDesign ?? "classic";
 
   const sections = useMemo<SectionShape<T>[]>(() => {
     const enriched = data
@@ -173,22 +198,18 @@ export default function BookListHistory<T extends Book = Book>({
 
     const byDate = new Map<string, { title: string; items: RowItem<T>[] }>();
     for (const it of enriched) {
-      if (!byDate.has(it.dateKey)) {
+      if (!byDate.has(it.dateKey))
         byDate.set(it.dateKey, { title: it.dateTitle, items: [] });
-      }
-      byDate.get(it.dateKey)!.items.push({
-        book: it.book,
-        ts: it.ts,
-        timeHHmm: it.timeHHmm,
-      });
+      byDate
+        .get(it.dateKey)!
+        .items.push({ book: it.book, ts: it.ts, timeHHmm: it.timeHHmm });
     }
 
     const result: SectionShape<T>[] = [];
     for (const [key, { title, items }] of byDate) {
       const rows: SectionRow<T>[] = [];
-      for (let i = 0; i < items.length; i += cols) {
+      for (let i = 0; i < items.length; i += cols)
         rows.push(items.slice(i, i + cols));
-      }
       result.push({ title, key, data: rows });
     }
 
@@ -196,7 +217,15 @@ export default function BookListHistory<T extends Book = Book>({
     return result;
   }, [data, historyIndex, cols, dateLocale, timePattern]);
 
-  const renderRow: SectionListRenderItem<SectionRow<T>> = ({ item: row }) => {
+  const rowKey = useCallback((row: SectionRow<T>, index: number) => {
+    const first = Array.isArray(row) && row[0];
+    return first ? `r-${first.book.id}-${first.ts}-${index}` : `row-${index}`;
+  }, []);
+
+  const renderRow: SectionListRenderItem<SectionRow<T>> = ({
+    item: row,
+    index,
+  }) => {
     return (
       <View
         style={{
@@ -208,8 +237,10 @@ export default function BookListHistory<T extends Book = Book>({
         }}
       >
         {row.map((cell) => {
-          const fav = isFavorite?.(cell.book.id) ?? false;
-
+          const fav =
+            favoritesSet.has(cell.book.id) ||
+            isFavorite?.(cell.book.id) ||
+            false;
           const entry = historyIndex[cell.book.id];
           const cur = entry ? Number(entry[1]) || 0 : 0;
           const total = entry ? Math.max(1, Number(entry[2]) || 1) : 1;
@@ -217,9 +248,8 @@ export default function BookListHistory<T extends Book = Book>({
           const done = entry ? cur >= total - 1 : false;
 
           return (
-            <Animated.View
+            <View
               key={`${cell.book.id}-${cell.ts}`}
-              exiting={FadeOut.duration(200)}
               style={{
                 width: cardWidth,
                 alignItems: "stretch",
@@ -250,17 +280,24 @@ export default function BookListHistory<T extends Book = Book>({
               </View>
 
               <BookCard
+                design={chosenDesign}
                 book={cell.book}
                 cardWidth={cardWidth}
                 isSingleCol={isSingleCol}
                 contentScale={contentScale}
                 isFavorite={fav}
-                onToggleFavorite={onToggleFavorite}
+                onToggleFavorite={(id, next) => {
+                  toggleFavorite(id, next);
+                  onToggleFavorite?.(id, next);
+                }}
                 onPress={() => onPress?.(cell.book.id)}
                 score={getScore?.(cell.book)}
                 showProgressOnCard={false}
+                favoritesSet={favoritesSet}
+                historyMap={historyMap}
+                hydrateFromStorage={false}
               />
-            </Animated.View>
+            </View>
           );
         })}
       </View>
@@ -286,10 +323,46 @@ export default function BookListHistory<T extends Book = Book>({
 
   const Empty = () => (
     <View style={styles.empty}>
-      <Animated.Text entering={FadeOut.duration(400)} style={styles.emptyText}>
-        {t("historyNotFound")}
-      </Animated.Text>
+      <Text style={styles.emptyText}>{t("historyNotFound")}</Text>
     </View>
+  );
+
+  const lastRowKey = useMemo(() => {
+    if (!sections.length) return "";
+    const lastSection = sections[sections.length - 1];
+    const lastIndex = lastSection.data.length - 1;
+    return rowKey(lastSection.data[lastIndex], lastIndex);
+  }, [sections, rowKey]);
+
+  const lastKeyHandledRef = useRef<string>("");
+  const [tick, setTick] = useState(0);
+
+  const onViewableItemsChanged = useCallback(
+    ({
+      viewableItems,
+    }: {
+      viewableItems: Array<{ key?: string; isViewable: boolean }>;
+    }) => {
+      if (!onEndReached || !lastRowKey) return;
+      const seen = viewableItems.some(
+        (v) => v.isViewable && v.key === lastRowKey
+      );
+      if (seen && lastKeyHandledRef.current !== lastRowKey) {
+        lastKeyHandledRef.current = lastRowKey;
+        onEndReached();
+        setTick((x) => (x + 1) % 100000);
+      }
+    },
+    [onEndReached, lastRowKey]
+  );
+
+  const viewabilityConfig = useMemo(
+    () => ({
+      itemVisiblePercentThreshold: 40,
+      minimumViewTime: 80,
+      waitForInteraction: true,
+    }),
+    []
   );
 
   return (
@@ -301,12 +374,9 @@ export default function BookListHistory<T extends Book = Book>({
           ref={listRef}
           stickySectionHeadersEnabled={false}
           sections={sections}
-          keyExtractor={(row, index) => {
-            const first = Array.isArray(row) && row[0];
-            return first
-              ? `r-${first.book.id}-${first.ts}-${index}`
-              : `row-${index}`;
-          }}
+          keyExtractor={(row, index) =>
+            rowKey(row as unknown as SectionRow<T>, index)
+          }
           renderItem={renderRow}
           renderSectionHeader={renderSectionHeader}
           refreshControl={
@@ -322,7 +392,18 @@ export default function BookListHistory<T extends Book = Book>({
             )
           }
           ListHeaderComponent={ListHeaderComponent}
-          contentContainerStyle={{ paddingTop: paddingHorizontal / 2 }}
+          contentContainerStyle={{
+            paddingTop: paddingHorizontal / 2,
+            paddingBottom: 16,
+          }}
+          removeClippedSubviews
+          windowSize={7}
+          maxToRenderPerBatch={10}
+          initialNumToRender={8}
+          updateCellsBatchingPeriod={40}
+          onViewableItemsChanged={onViewableItemsChanged}
+          viewabilityConfig={viewabilityConfig}
+          extraData={tick}
         />
       )}
       {children}

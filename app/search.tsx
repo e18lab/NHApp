@@ -16,6 +16,7 @@ import {
 import { Book, searchBooks } from "@/api/nhentai";
 import SmartImage from "@/components/SmartImage";
 import { buildImageFallbacks } from "@/components/buildImageFallbacks";
+import { useDateRange } from "@/context/DateRangeContext";
 import { useSort } from "@/context/SortContext";
 import { useFilterTags } from "@/context/TagFilterContext";
 import { useTheme } from "@/lib/ThemeContext";
@@ -79,6 +80,9 @@ export default function SearchScreen() {
   const { includes, excludes } = useFilterTags();
   const { sort } = useSort();
 
+  const { from: dateFrom, to: dateTo, clearRange } = useDateRange();
+  const dateFilterActive = !!dateFrom || !!dateTo;
+
   const params = useLocalSearchParams<{ query?: string | string[] }>();
   const queryParam = typeof params.query === "string" ? params.query : "";
 
@@ -115,10 +119,12 @@ export default function SearchScreen() {
 
   const incStr = JSON.stringify(includes);
   const excStr = JSON.stringify(excludes);
+
   useEffect(() => {
     const query = q.trim();
-    if (!query) {
+    if (!query || dateFilterActive) {
       setSug([]);
+      setLoad(false);
       return;
     }
     setLoad(true);
@@ -137,7 +143,7 @@ export default function SearchScreen() {
       }
     }, 250);
     return () => clearTimeout(tmo);
-  }, [q, sort, incStr, excStr]);
+  }, [q, sort, incStr, excStr, dateFilterActive]);
 
   const trimmed = q.trim();
   const filteredHistory = useMemo(
@@ -299,56 +305,103 @@ export default function SearchScreen() {
               {t("search.results")}
             </Text>
 
-            {loading && (
-              <ActivityIndicator
-                size="small"
-                color={colors.sub}
-                style={{ marginVertical: 12 }}
-              />
-            )}
-
-            {!loading &&
-              suggests.map((b) => (
-                <RowPress
-                  key={b.id}
-                  onPress={() =>
-                    router.push({
-                      pathname: "/book/[id]",
-                      params: { id: String(b.id), title: b.title.pretty },
-                    })
-                  }
-                >
-                  <SmartImage
-                    sources={buildImageFallbacks(b.thumbnail)}
-                    style={styles.thumb}
-                  />
-                  <View style={{ flex: 1 }}>
-                    <Text
-                      style={[styles.rowTxt, { color: colors.searchTxt }]}
-                      numberOfLines={1}
-                    >
-                      {b.title.pretty}
-                    </Text>
-                    <Text style={[styles.metaTxt, { color: colors.sub }]}>
-                      {t("book.pages", { count: b.pagesCount })}
-                    </Text>
-                  </View>
-                </RowPress>
-              ))}
-
-            {!loading && suggests.length === 0 && (
-              <Text
+            {dateFilterActive ? (
+              <View
                 style={[
-                  styles.metaTxt,
+                  styles.rounded,
                   {
-                    color: colors.sub,
-                    textAlign: "center",
-                    marginTop: 12,
+                    paddingHorizontal: 10,
+                    paddingVertical: 10,
+                    backgroundColor: colors.accent + "12",
+                    borderWidth: StyleSheet.hairlineWidth,
+                    borderColor: colors.page,
+                    marginTop: 8,
                   },
                 ]}
               >
-                {t("empty.search", { q: trimmed })}
-              </Text>
+                <View style={{ flexDirection: "row", alignItems: "center" }}>
+                  <Feather name="calendar" size={16} color={colors.accent} />
+                  <Text
+                    style={{
+                      color: colors.searchTxt,
+                      marginLeft: 8,
+                      fontWeight: "700",
+                    }}
+                  >
+                    Предпросмотр не работает с датами
+                  </Text>
+                </View>
+                <Text
+                  style={{
+                    color: colors.sub,
+                    marginTop: 6,
+                    lineHeight: 18,
+                  }}
+                >
+                  Открой результаты или{" "}
+                  <Text
+                    onPress={clearRange}
+                    style={{ color: colors.accent, fontWeight: "800" }}
+                  >
+                    сбрось даты
+                  </Text>
+                  , чтобы увидеть быстрые подсказки.
+                </Text>
+              </View>
+            ) : (
+              <>
+                {loading && (
+                  <ActivityIndicator
+                    size="small"
+                    color={colors.sub}
+                    style={{ marginVertical: 12 }}
+                  />
+                )}
+
+                {!loading &&
+                  suggests.map((b) => (
+                    <RowPress
+                      key={b.id}
+                      onPress={() =>
+                        router.push({
+                          pathname: "/book/[id]",
+                          params: { id: String(b.id), title: b.title.pretty },
+                        })
+                      }
+                    >
+                      <SmartImage
+                        sources={buildImageFallbacks(b.thumbnail)}
+                        style={styles.thumb}
+                      />
+                      <View style={{ flex: 1 }}>
+                        <Text
+                          style={[styles.rowTxt, { color: colors.searchTxt }]}
+                          numberOfLines={1}
+                        >
+                          {b.title.pretty}
+                        </Text>
+                        <Text style={[styles.metaTxt, { color: colors.sub }]}>
+                          {t("book.pages", { count: b.pagesCount })}
+                        </Text>
+                      </View>
+                    </RowPress>
+                  ))}
+
+                {!loading && suggests.length === 0 && (
+                  <Text
+                    style={[
+                      styles.metaTxt,
+                      {
+                        color: colors.sub,
+                        textAlign: "center",
+                        marginTop: 12,
+                      },
+                    ]}
+                  >
+                    {t("empty.search", { q: trimmed })}
+                  </Text>
+                )}
+              </>
             )}
           </>
         )}
