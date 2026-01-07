@@ -9,6 +9,19 @@ import { Platform } from "react-native";
 
 const NH_HOST = "https://nhentai.net";
 
+// Proxy URL for web version to bypass CORS
+const PROXY_BASE = Platform.OS === "web" 
+  ? (process.env.EXPO_PUBLIC_API_URL || "http://localhost:3002") + "/fpi"
+  : null;
+
+// Helper to get proxied URL on web
+function getProxiedUrl(url: string): string {
+  if (Platform.OS === "web" && PROXY_BASE && url.startsWith("https://nhentai.net")) {
+    return url.replace("https://nhentai.net", `${PROXY_BASE}/nhentai`);
+  }
+  return url;
+}
+
 // ===== Типы =====
 export interface ApiUserLite {
   id: number;
@@ -76,7 +89,8 @@ export async function submitComment(
   text: string,
   captchaToken?: string
 ): Promise<ApiComment> {
-  const url = `${NH_HOST}/api/gallery/${galleryId}/comments/submit`;
+  let url = `${NH_HOST}/api/gallery/${galleryId}/comments/submit`;
+  url = getProxiedUrl(url);
 
   const payload: Record<string, any> = { body: text };
   if (captchaToken) {
@@ -93,11 +107,16 @@ export async function submitComment(
     "X-Requested-With": "XMLHttpRequest",
     Referer: `${NH_HOST}/g/${galleryId}/`,
     Origin: NH_HOST,
-    "User-Agent":
+  };
+  
+  // On web, don't set User-Agent (browser doesn't allow it)
+  if (Platform.OS !== "web") {
+    headers["User-Agent"] =
       Platform.OS === "ios"
         ? "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1"
-        : "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Mobile Safari/537.36",
-  };
+        : "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Mobile Safari/537.36";
+  }
+  
   if (cookieHeader) headers["Cookie"] = cookieHeader;
 
   const csrf = cookies.csrftoken || getCsrfFromCookie();
@@ -162,11 +181,16 @@ function commonHeaders(opts: {
     Origin: NH_HOST,
     Referer: opts.referer,
     Cookie: opts.cookie,
-    "User-Agent":
+  };
+  
+  // On web, don't set User-Agent (browser doesn't allow it)
+  if (Platform.OS !== "web") {
+    h["User-Agent"] =
       Platform.OS === "ios"
         ? "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1"
-        : "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Mobile Safari/537.36",
-  };
+        : "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Mobile Safari/537.36";
+  }
+  
   if (opts.csrf) h["X-CSRFToken"] = opts.csrf; // должно совпадать с cookie csrftoken
   return h;
 }
@@ -177,7 +201,9 @@ export async function deleteComment(
   const cookies = await getAuthCookies();
   const cookieHeader = buildCookieHeader(cookies);
 
-  const res = await fetch(`${NH_HOST}/api/comments/${commentId}/delete`, {
+  let url = `${NH_HOST}/api/comments/${commentId}/delete`;
+  url = getProxiedUrl(url);
+  const res = await fetch(url, {
     method: "POST",
     headers: {
       ...commonHeaders({
@@ -206,7 +232,7 @@ export async function deleteCommentById(
   commentId: number,
   opts?: { galleryId?: number }
 ): Promise<{ success: boolean }> {
-  const url = `${NH_HOST}/api/comments/${commentId}/delete`;
+  let url = `${NH_HOST}/api/comments/${commentId}/delete`;
 
   const buildHeaders = async () => {
     const cookieHeader = await cookieHeaderString(); // "" на нативе, строка на Expo/web
@@ -217,11 +243,16 @@ export async function deleteCommentById(
       "X-Requested-With": "XMLHttpRequest",
       Origin: NH_HOST,
       Referer: opts?.galleryId ? `${NH_HOST}/g/${opts.galleryId}/` : `${NH_HOST}/`,
-      "User-Agent":
+    };
+    
+    // On web, don't set User-Agent (browser doesn't allow it)
+    if (Platform.OS !== "web") {
+      headers["User-Agent"] =
         Platform.OS === "ios"
           ? "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1"
-          : "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Mobile Safari/537.36",
-    };
+          : "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Mobile Safari/537.36";
+    }
+    
     if (cookieHeader) headers["Cookie"] = cookieHeader;
     if (csrftoken) {
       headers["X-CSRFToken"] = csrftoken;   // должен совпадать с кукой csrftoken
@@ -231,7 +262,9 @@ export async function deleteCommentById(
   };
 
   const tryOnce = async () => {
-    const res = await fetch(url, { method: "POST", headers: await buildHeaders() });
+    let finalUrl = url;
+    finalUrl = getProxiedUrl(finalUrl);
+    const res = await fetch(finalUrl, { method: "POST", headers: await buildHeaders() });
     const text = await res.text();
     if (!res.ok) {
       const err = new Error(`Delete failed: ${res.status} ${res.statusText} ${text.slice(0, 400)}`);

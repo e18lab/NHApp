@@ -2,17 +2,28 @@ import axios from "axios";
 import * as FileSystem from "expo-file-system/legacy";
 import { Image, Platform } from "react-native";
 
-const corsProxy = "https://thingproxy.freeboard.io/fetch/";
-const baseURL =
-  Platform.OS === "web"
-    ? corsProxy + "https://nhentai.net/api"
-    : "https://nhentai.net/api";
+// Proxy URL for web version to bypass CORS
+const PROXY_BASE = Platform.OS === "web" 
+  ? (process.env.EXPO_PUBLIC_API_URL || "http://localhost:3002") + "/fpi"
+  : null;
+
+const baseURL = Platform.OS === "web" && PROXY_BASE
+  ? `${PROXY_BASE}/nhentai/api`
+  : "https://nhentai.net/api";
+
+// On web, don't set User-Agent header (browser doesn't allow it)
+const headers: Record<string, string> = {};
+if (Platform.OS !== "web") {
+  headers["User-Agent"] = "nh-client";
+}
 
 const api = axios.create({
   baseURL,
-  headers: { "User-Agent": "nh-client" },
+  headers,
   timeout: 10_000,
 });
+
+// Request interceptor removed - no proxy needed for web
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const readRetryAfterMs = (headers?: any): number | null => {
@@ -1139,10 +1150,9 @@ function dedupBooks(arr: Book[]): Book[] {
   return out;
 }
 
-const siteBase =
-  Platform.OS === "web"
-    ? corsProxy + "https://nhentai.net"
-    : "https://nhentai.net";
+const siteBase = Platform.OS === "web" && PROXY_BASE
+  ? `${PROXY_BASE}/nhentai`
+  : "https://nhentai.net";
 
 async function getRandomId(): Promise<number> {
   try {

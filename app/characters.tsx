@@ -1,4 +1,4 @@
-﻿import { Feather } from "@expo/vector-icons";
+import { Feather } from "@expo/vector-icons";
 import { Image as ExpoImage } from "expo-image";
 import { useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -253,7 +253,7 @@ export default function CharactersScreen() {
     }
   }, [buildGroups]);
 
-  const userOptions = useMemo<UserFilterOption[]>(() => {
+  const userOptions: UserFilterOption[] = useMemo(() => {
     const map = new Map<number, UserFilterOption>();
     let allCount = 0;
 
@@ -272,7 +272,7 @@ export default function CharactersScreen() {
           key: `u-${uid}`,
           label: item.userName ?? `User #${uid}`,
           userId: uid,
-          avatarUrl: `https:
+          avatarUrl: `https://i1.nhentai.net/avatars/${uid}.png`,
           count: 0,
         });
       }

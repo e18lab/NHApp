@@ -2,8 +2,21 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import Constants from "expo-constants";
 import { Platform } from "react-native";
 
+// Proxy URL for web version to bypass CORS
+const PROXY_BASE = Platform.OS === "web" 
+  ? (process.env.EXPO_PUBLIC_API_URL || "http://localhost:3002") + "/fpi"
+  : null;
+
 export const NH_HOST = "https://nhentai.net";
 export const LOGIN_URL = `${NH_HOST}/login/?next=/`;
+
+// Helper to get proxied URL on web
+function getProxiedUrl(path: string): string {
+  if (Platform.OS === "web" && PROXY_BASE && path.startsWith("https://nhentai.net")) {
+    return path.replace("https://nhentai.net", `${PROXY_BASE}/nhentai`);
+  }
+  return path;
+}
 
 export type AuthTokens = {
   csrftoken?: string;
@@ -206,13 +219,23 @@ export async function nhFetch(
   init: NHFetchInit = {}
 ): Promise<Response> {
   const urlBase = path.startsWith("http") ? path : `${NH_HOST}${path}`;
-  const url =
+  let url =
     init.noCache === true
       ? `${urlBase}${urlBase.includes("?") ? "&" : "?"}ts=${Date.now()}`
       : urlBase;
 
+  // Use proxy on web to bypass CORS
+  url = getProxiedUrl(url);
+
   const withAuth = init.withAuth !== false;
   const headers = new Headers(init.headers || {});
+
+  // On web, don't set User-Agent (browser doesn't allow it)
+  if (Platform.OS !== "web") {
+    if (!headers.has("User-Agent")) {
+      headers.set("User-Agent", "nh-client");
+    }
+  }
 
   if (withAuth && !headers.has("Cookie") && !hasNativeCookieJar()) {
     const cookieHeader = await cookieHeaderString({ preferNative: false });

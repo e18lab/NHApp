@@ -22,7 +22,7 @@ import {
   GestureDetector,
   GestureHandlerRootView,
 } from "react-native-gesture-handler";
-import PagerView from "react-native-pager-view";
+import PagerView from "@/components/PagerView";
 import {
   runOnJS,
   useAnimatedStyle,
@@ -119,7 +119,7 @@ export default function ReadScreen() {
   const isLandscape = W > H;
   const isPhone = !isTablet;
 
-  const pager = useRef<PagerView>(null);
+  const pager = useRef<any>(null);
 
   const [pages, setPages] = useState<BookPage[]>([]);
   const [urls, setUrls] = useState<string[]>([]);
@@ -579,7 +579,7 @@ export default function ReadScreen() {
                   style={{ flex: 1 }}
                   orientation={settings.orientation}
                   initialPage={frameIdxFromAbs(absIndexRef.current)}
-                  onPageSelected={(e) => {
+                  onPageSelected={(e: { nativeEvent: { position: number } }) => {
                     const pos = e.nativeEvent.position;
                     setFrameIdx(pos);
                     frameIdxRef.current = pos;
