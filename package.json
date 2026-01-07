@@ -4,9 +4,9 @@
   "version": "1.2.0",
   "scripts": {
     "sync-version": "node scripts/sync-version.js",
-    "android-studio": "npm run sync-version && node ./scripts/sync-android-files.js overrides/android && npx expo prebuild && node ./scripts/prepare-android",
+    "android-studio": "npm run sync-version && node ./scripts/sync-android-overrides.js overrides/android && npx expo prebuild && node ./scripts/prepare-android",
     "android-build": "npm run sync-version && npm run android-studio && npx react-native run-android --mode release",
-    "android-sync": "node ./scripts/sync-android-files.js overrides/android",
+    "android-sync": "node ./scripts/sync-android-overrides.js overrides/android",
     "move-apk": "node ./scripts/move-apk.js",
     "android-release:clean": "cd android && gradlew.bat clean",
     "android-release:assemble": "cd android && gradlew.bat assembleRelease",
@@ -83,7 +83,8 @@
     "react-native-web": "^0.21.0",
     "react-native-webview": "13.15.0",
     "expo-background-task": "~1.0.8",
-    "expo-task-manager": "~14.0.8"
+    "expo-task-manager": "~14.0.8",
+    "@expo/metro-runtime": "~6.1.2"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",

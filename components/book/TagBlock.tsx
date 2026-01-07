@@ -1,4 +1,4 @@
-﻿import { useTheme } from "@/lib/ThemeContext";
+import { useTheme } from "@/lib/ThemeContext";
 import { Feather } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
 import { Image as ExpoImage } from "expo-image";
@@ -31,6 +31,7 @@ export type TagLite = {
 };
 
 const keyOf = (t: TagLite, group: string) => `${group}:${t.type}:${t.name}`;
+const EMPTY_TAGS: TagLite[] = [];
 
 function normalizeNhentaiImageUrl(url: string): string {
   return url.replace(/\/(\d+)w\.(jpg|jpeg|png|gif)$/i, "/$1.$2");
@@ -211,13 +212,13 @@ export const TagBlock = memo(function TagBlock({
   renderLabelExtra?: React.ReactNode;
 }) {
   const { colors } = useTheme();
-  if (!tags?.length) return null;
+  const safeTags = tags ?? EMPTY_TAGS;
 
   const { cardTags, simpleTags } = useMemo(() => {
     const withCard: TagLite[] = [];
     const withoutCard: TagLite[] = [];
 
-    tags.forEach((t) => {
+    safeTags.forEach((t) => {
       if (t.cardImageUrl && t.cardRect) {
         withCard.push(t);
       } else {
@@ -226,7 +227,7 @@ export const TagBlock = memo(function TagBlock({
     });
 
     return { cardTags: withCard, simpleTags: withoutCard };
-  }, [tags]);
+  }, [safeTags]);
 
   const incColor = (colors as any).incTxt ?? colors.accent;
   const excColor = (colors as any).excTxt ?? "#FF5A5F";
@@ -263,6 +264,8 @@ export const TagBlock = memo(function TagBlock({
       optimistic.current.clear();
     };
   }, []);
+
+  if (safeTags.length === 0) return null;
 
   return (
     <View style={{ marginTop: 10 }}>

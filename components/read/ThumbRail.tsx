@@ -34,18 +34,19 @@ export function ThumbRail({
     | React.RefObject<FlatList<string>>
     | React.MutableRefObject<FlatList<string> | null>;
 }) {
-  if (!visible) return null;
-
   const THUMB_H = 64;
   const THUMB_GAP = 5;
 
   useEffect(() => {
+    if (!visible) return;
     if (scrollRef.current) {
       const yOffset =
         firstAbsPage * (THUMB_H + THUMB_GAP) - railH / 1.7 + THUMB_H / 2;
       scrollRef.current.scrollToOffset({ offset: yOffset, animated: true });
     }
-  }, [firstAbsPage, railH]);
+  }, [visible, firstAbsPage, railH, scrollRef]);
+
+  if (!visible) return null;
 
   return (
     <View

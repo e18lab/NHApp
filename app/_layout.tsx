@@ -1,4 +1,4 @@
-﻿import AsyncStorage from "@react-native-async-storage/async-storage";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as NavigationBar from "expo-navigation-bar";
 import { Stack, usePathname } from "expo-router";
 import { StatusBar } from "expo-status-bar";
@@ -25,7 +25,8 @@ import { TagLibraryProvider } from "@/context/TagLibraryContext";
 import { ThemeProvider, useTheme } from "@/lib/ThemeContext";
 import { I18nProvider } from "@/lib/i18n/I18nContext";
 
-import { enableFreeze } from "react-native-screens";
+import { enableFreeze, enableScreens } from "react-native-screens";
+enableScreens(true);
 enableFreeze(true);
 
 const FS_KEY = "ui_fullscreen";
@@ -85,6 +86,9 @@ function AppShell() {
     ),
     [closeDrawer, fullscreen, isTabletPermanent, menuCollapsed]
   );
+  const renderDrawerContent = useCallback(() => drawerContentEl, [
+    drawerContentEl,
+  ]);
 
   useEffect(() => {
     (globalThis as any).__setFullscreen = (v: boolean) => setFullscreen(v);
@@ -159,7 +163,7 @@ function AppShell() {
             }}
             drawerType="back"
             swipeEnabled={false}
-            renderDrawerContent={() => drawerContentEl}
+            renderDrawerContent={renderDrawerContent}
           >
             <View style={{ flex: 1, backgroundColor: colors.bg }}>
               <AppContent />
