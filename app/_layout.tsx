@@ -225,6 +225,7 @@ function AppContent() {
         <Stack.Screen name="book/[id]" />
         <Stack.Screen name="profile/[id]/[slug]" />
         <Stack.Screen name="read" />
+        <Stack.Screen name="read-electron" />
         <Stack.Screen name="downloaded" />
         <Stack.Screen name="recommendations" />
         <Stack.Screen name="tags/index" />

@@ -1,4 +1,4 @@
-﻿import {
+import {
   createCharacterCard,
   getCharactersWithCards,
   getGlobalCharacterCardForCharacter,
@@ -15,9 +15,10 @@ import { timeAgo } from "@/utils/book/timeAgo";
 import { Feather, FontAwesome } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Clipboard from "expo-clipboard";
-import { Image as ExpoImage } from "expo-image";
+import ExpoImage from "@/components/ExpoImageCompat";
 import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect, useRouter } from "expo-router";
+import { openReaderWindow, isElectron } from "@/electron/bridge";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   FlatList,
@@ -632,15 +633,20 @@ export default function Hero({
             <View style={[styles.actionRow, { marginTop: 14 }]}>
               <View style={{ borderRadius: 14, overflow: "hidden", flex: 1 }}>
                 <Pressable
-                  onPress={() =>
-                    router.push({
-                      pathname: "/read",
-                      params: {
-                        id: String(book.id),
-                        page: String(readBtn.page),
-                      },
-                    })
-                  }
+                  onPress={async () => {
+                    // Для Electron открываем отдельное окно, для Android - обычная навигация
+                    if (isElectron() && book.id) {
+                      await openReaderWindow(book.id, readBtn.page);
+                    } else {
+                      router.push({
+                        pathname: "/read",
+                        params: {
+                          id: String(book.id),
+                          page: String(readBtn.page),
+                        },
+                      });
+                    }
+                  }}
                   style={[styles.readBtn, { backgroundColor: colors.accent }]}
                   android_ripple={{ color: "#ffffff22", borderless: false }}
                 >
@@ -951,12 +957,17 @@ export default function Hero({
         <View style={[styles.actionRow, { marginTop: 14 }]}>
           <View style={{ borderRadius: 14, overflow: "hidden", flex: 1 }}>
             <Pressable
-              onPress={() =>
-                router.push({
-                  pathname: "/read",
-                  params: { id: String(book.id), page: String(readBtn.page) },
-                })
-              }
+              onPress={async () => {
+                // Для Electron открываем отдельное окно, для Android - обычная навигация
+                if (isElectron() && book.id) {
+                  await openReaderWindow(book.id, readBtn.page);
+                } else {
+                  router.push({
+                    pathname: "/read",
+                    params: { id: String(book.id), page: String(readBtn.page) },
+                  });
+                }
+              }}
               style={[styles.readBtn, { backgroundColor: colors.accent }]}
               android_ripple={{ color: "#ffffff22", borderless: false }}
             >

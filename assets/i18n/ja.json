@@ -232,7 +232,9 @@
   "settings": {
     "appearance": {
       "hue": "色相: {deg}°",
-      "theme": "アプリのテーマ"
+      "theme": "アプリのテーマ",
+      "presets": "プリセット",
+      "fullPalette": "フルパレット"
     },
     "display": {
       "androidNote": "Androidではフルスクリーン中でも下からスワイプでシステムバーを表示できます。",
@@ -241,6 +243,7 @@
     },
     "language": {
       "choose": "アプリの言語",
+      "current": "現在",
       "english": "English",
       "note": "インターフェースの言語のみ切り替えます。コンテンツの言語は影響しません。",
       "russian": "Русский",
@@ -258,7 +261,13 @@
       "grid": "カタロググリッド",
       "language": "言語",
       "reader": "リーダー",
-      "storage": "デバイスストレージ"
+      "storage": "デバイスストレージ",
+      "sync": "同期"
+    },
+    "sync": {
+      "title": "デバイス間でデータを同期",
+      "description": "QRコードでデータを共有するか、別のデバイスのQRコードをスキャンして同期します。",
+      "button": "データを同期"
     },
     "grid": {
       "resetProfile": "このプロファイルをリセット",
@@ -533,5 +542,35 @@
       "default": "フィルターを変えるか、リストを更新してみてください。",
       "noFav": "いくつかの本に「いいね」すると、似た作品を探します。"
     }
+  },
+  "sync": {
+    "title": "データを同期",
+    "selectMode": "同じネットワーク内のデバイス間でデータを同期する方法を選択します。",
+    "createServer": "サーバーを作成",
+    "createServerDesc": "サーバーを起動し、他のデバイスの接続を待ちます",
+    "findServer": "サーバーを検索",
+    "findServerDesc": "ネットワーク内の利用可能なサーバーを検索",
+    "serverDescription": "サーバーが実行中です。他のデバイスが接続してデータを同期できます。",
+    "serverRunning": "サーバー実行中",
+    "serverAddress": "アドレス: {ip}:{port}",
+    "startingServer": "サーバーを起動中...",
+    "stopServer": "サーバーを停止",
+    "serverStarted": "サーバーが起動しました",
+    "serverInfo": "サーバーは {ip}:{port} で実行中です",
+    "serverNotAvailable": "サーバーが利用できません",
+    "mobileServerHint": "モバイルデバイスでは、「サーバーを検索」モードを使用し、別のデバイスで実行されているサーバーに接続してください。",
+    "clientDescription": "ネットワーク内のサーバーを検索中...",
+    "searching": "サーバーを検索中...",
+    "foundServers": "見つかったサーバー:",
+    "noServersFound": "サーバーが見つかりません",
+    "noServersMessage": "ネットワーク内に同期サーバーが見つかりませんでした。別のデバイスでサーバーが実行されていることを確認してください。",
+    "manualConnect": "または、サーバーURLを手動で入力:",
+    "connect": "接続",
+    "syncing": "データを同期中...",
+    "success": "成功",
+    "error": "エラー",
+    "synced": "{count} 項目を正常に同期しました！",
+    "failed": "同期に失敗しました: {error}",
+    "enterUrl": "サーバーURLを入力してください"
   }
 }

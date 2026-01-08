@@ -232,7 +232,9 @@
   "settings": {
     "appearance": {
       "hue": "色调: {deg}°",
-      "theme": "应用主题"
+      "theme": "应用主题",
+      "presets": "预设",
+      "fullPalette": "完整调色板"
     },
     "display": {
       "androidNote": "在 Android 上，即使全屏模式下，也可以通过底部上滑显示系统栏。",
@@ -241,6 +243,7 @@
     },
     "language": {
       "choose": "应用语言",
+      "current": "当前",
       "english": "English",
       "note": "只切换界面语言，内容语言不受影响。",
       "russian": "Русский",
@@ -258,7 +261,13 @@
       "grid": "目录网格",
       "language": "语言",
       "reader": "阅读器",
-      "storage": "设备存储"
+      "storage": "设备存储",
+      "sync": "同步"
+    },
+    "sync": {
+      "title": "在设备之间同步数据",
+      "description": "通过二维码分享您的数据或扫描另一台设备的二维码进行同步。",
+      "button": "同步数据"
     },
     "grid": {
       "resetProfile": "重置此配置",
@@ -533,5 +542,35 @@
       "default": "试着修改筛选条件或刷新列表。",
       "noFav": "先给几本书点个赞，我会为你推荐相似的作品。"
     }
+  },
+  "sync": {
+    "title": "同步数据",
+    "selectMode": "选择如何在同一网络中的设备之间同步数据。",
+    "createServer": "创建服务器",
+    "createServerDesc": "启动服务器并等待其他设备连接",
+    "findServer": "查找服务器",
+    "findServerDesc": "搜索网络中可用的服务器",
+    "serverDescription": "服务器正在运行。其他设备现在可以连接以同步数据。",
+    "serverRunning": "服务器运行中",
+    "serverAddress": "地址: {ip}:{port}",
+    "startingServer": "正在启动服务器...",
+    "stopServer": "停止服务器",
+    "serverStarted": "服务器已启动",
+    "serverInfo": "服务器运行在 {ip}:{port}",
+    "serverNotAvailable": "服务器不可用",
+    "mobileServerHint": "在移动设备上，请使用“查找服务器”模式并连接到在另一台设备上运行的服务器。",
+    "clientDescription": "正在搜索网络中的服务器...",
+    "searching": "正在搜索服务器...",
+    "foundServers": "找到的服务器:",
+    "noServersFound": "未找到服务器",
+    "noServersMessage": "在网络中未找到同步服务器。请确保另一台设备正在运行服务器。",
+    "manualConnect": "或手动输入服务器地址:",
+    "connect": "连接",
+    "syncing": "正在同步数据...",
+    "success": "成功",
+    "error": "错误",
+    "synced": "成功同步 {count} 项！",
+    "failed": "同步失败: {error}",
+    "enterUrl": "请输入服务器地址"
   }
 }

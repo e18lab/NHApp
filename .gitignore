@@ -18,6 +18,18 @@ dist/
 web-build/
 expo-env.d.ts
 
+# Electron
+electron-dist/
+electron-build/
+*.dmg
+*.exe
+*.AppImage
+*.deb
+*.rpm
+*.snap
+*.zip
+*.tar.gz
+
 # Native
 .kotlin/
 *.orig.*

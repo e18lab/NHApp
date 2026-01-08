@@ -29,7 +29,36 @@ export async function fetchHtml(url: string): Promise<{
   const finalUrl = url;
   
   if (isBrowser) {
-    // On web, try to fetch directly
+    // Проверяем что это Electron, а не обычный браузер
+    const isElectron = typeof window !== "undefined" && !!(window as any).electron?.isElectron;
+    
+    if (isElectron) {
+      // Electron: используем IPC метод для получения HTML с cookies из Electron session
+      try {
+        const electron = (window as any).electron;
+        if (!electron || !electron.fetchHtml) {
+          console.error("[fetchHtml] electron.fetchHtml not available");
+          return { html: "", finalUrl: url, status: 0 };
+        }
+        
+        const result = await electron.fetchHtml(url);
+        if (!result.success || !result.html) {
+          console.warn(`[fetchHtml] IPC fetchHtml failed:`, result.error);
+          return { html: "", finalUrl: result.finalUrl || url, status: result.status || 0 };
+        }
+        
+        return {
+          html: result.html,
+          finalUrl: result.finalUrl || url, // Используем finalUrl из результата, если есть
+          status: result.status || 200,
+        };
+      } catch (e) {
+        console.error("[fetchHtml] IPC fetchHtml error:", e);
+        return { html: "", finalUrl: url, status: 0 };
+      }
+    }
+    
+    // Обычный браузер: try to fetch directly
     try {
       const res = await fetch(finalUrl, {
         method: "GET",

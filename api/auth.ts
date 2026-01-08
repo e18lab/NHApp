@@ -12,6 +12,12 @@ export const LOGIN_URL = `${NH_HOST}/login/?next=/`;
 
 // Helper to get proxied URL on web
 function getProxiedUrl(path: string): string {
+  // Для Electron не используем proxy - используем IPC
+  const isElectron = Platform.OS === "web" && typeof window !== "undefined" && !!(window as any).electron?.isElectron;
+  if (isElectron) {
+    return path; // Возвращаем оригинальный URL, IPC обработает его
+  }
+  
   if (Platform.OS === "web" && PROXY_BASE && path.startsWith("https://nhentai.net")) {
     return path.replace("https://nhentai.net", `${PROXY_BASE}/nhentai`);
   }
@@ -218,6 +224,102 @@ export async function nhFetch(
   path: string,
   init: NHFetchInit = {}
 ): Promise<Response> {
+  // Для Electron используем IPC метод вместо fetch
+  const isElectron = Platform.OS === "web" && typeof window !== "undefined" && !!(window as any).electron?.isElectron;
+  
+  console.log(`[nhFetch] Platform.OS: ${Platform.OS}, isElectron: ${isElectron}, path: ${path}`);
+  
+  if (isElectron) {
+    const electron = (window as any).electron;
+    if (!electron || !electron.fetchJson) {
+      console.warn("[nhFetch] Electron detected but fetchJson not available, falling back to proxy");
+      // Fallback to proxy if IPC method not available - continue to normal fetch below
+    } else {
+      // Используем IPC метод для Electron
+      const urlBase = path.startsWith("http") ? path : `${NH_HOST}${path}`;
+      let url =
+        init.noCache === true
+          ? `${urlBase}${urlBase.includes("?") ? "&" : "?"}ts=${Date.now()}`
+          : urlBase;
+
+      const withAuth = init.withAuth !== false;
+      const tokens = await loadTokens();
+      
+      // Формируем заголовки
+      const headers: Record<string, string> = {};
+      
+      if (withAuth) {
+        const cookieHeader = await cookieHeaderString({ preferNative: false });
+        if (cookieHeader) {
+          headers["Cookie"] = cookieHeader;
+        }
+      }
+
+      const needsCsrf =
+        init.csrf === true ||
+        (init.method && !/^(GET|HEAD)$/i.test(String(init.method))) ||
+        false;
+
+      if (needsCsrf && tokens.csrftoken) {
+        headers["X-CSRFToken"] = tokens.csrftoken;
+        headers["Referer"] = NH_HOST + "/";
+      }
+
+      // Добавляем пользовательские заголовки
+      if (init.headers) {
+        const customHeaders = new Headers(init.headers);
+        customHeaders.forEach((value, key) => {
+          headers[key] = value;
+        });
+      }
+
+      // Используем IPC метод для запроса
+      console.log(`[nhFetch] Using Electron IPC for: ${url}`);
+      
+      try {
+        const result = await electron.fetchJson(url, {
+          method: init.method || "GET",
+          headers,
+          body: init.body,
+        });
+
+        if (!result.success) {
+          console.error(`[nhFetch] IPC request failed:`, result.error);
+          // Создаём Response с ошибкой
+          return new Response(JSON.stringify({ error: result.error || "Request failed" }), {
+            status: 500,
+            statusText: result.error || "Request failed",
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+
+        // Создаём Response-подобный объект
+        const responseHeaders = new Headers();
+        if (result.headers) {
+          Object.keys(result.headers).forEach(key => {
+            responseHeaders.set(key, String(result.headers[key]));
+          });
+        }
+
+        console.log(`[nhFetch] IPC request success: ${result.status}`);
+        return new Response(result.body || "", {
+          status: result.status || 200,
+          statusText: result.statusText || "OK",
+          headers: responseHeaders,
+        });
+      } catch (err: any) {
+        console.error("[nhFetch] Electron IPC error:", err);
+        // Fallback: возвращаем ошибку
+        return new Response(JSON.stringify({ error: err.message || "IPC request failed" }), {
+          status: 500,
+          statusText: err.message || "IPC request failed",
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+    }
+  }
+
+  // Для нативных платформ и обычного браузера используем обычный fetch
   const urlBase = path.startsWith("http") ? path : `${NH_HOST}${path}`;
   let url =
     init.noCache === true
@@ -239,7 +341,16 @@ export async function nhFetch(
 
   if (withAuth && !headers.has("Cookie") && !hasNativeCookieJar()) {
     const cookieHeader = await cookieHeaderString({ preferNative: false });
-    if (cookieHeader) headers.set("Cookie", cookieHeader);
+    if (cookieHeader) {
+      headers.set("Cookie", cookieHeader);
+      if (Platform.OS === "web") {
+        console.log(`[nhFetch] Added Cookie header (length: ${cookieHeader.length})`);
+      }
+    } else {
+      if (Platform.OS === "web") {
+        console.warn(`[nhFetch] No cookie header available for ${url}`);
+      }
+    }
   }
 
   const tokens = await loadTokens();
@@ -375,4 +486,39 @@ export async function getAuthCookies(): Promise<AuthTokens> {
 
 export async function setAuthCookies(tokens: AuthTokens): Promise<void> {
   await saveTokens(tokens);
+}
+
+/**
+ * Синхронизирует cookies из Electron session в AsyncStorage
+ * Используется после логина через Electron окно
+ */
+export async function syncElectronCookies(): Promise<AuthTokens> {
+  if (Platform.OS !== "web" || typeof window === "undefined") {
+    return await loadTokens();
+  }
+
+  const electron = (window as any).electron;
+  if (!electron || !electron.isElectron) {
+    return await loadTokens();
+  }
+
+  try {
+    const result = await electron.getCookies("https://nhentai.net");
+    if (result.success && result.cookies) {
+      const cookies = result.cookies;
+      const tokens: AuthTokens = {
+        csrftoken: cookies.csrftoken,
+        sessionid: cookies.sessionid,
+      };
+      
+      if (tokens.csrftoken || tokens.sessionid) {
+        await saveTokens(tokens);
+        return tokens;
+      }
+    }
+  } catch (err) {
+    console.error("[auth] Failed to sync Electron cookies:", err);
+  }
+
+  return await loadTokens();
 }

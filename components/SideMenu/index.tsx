@@ -1,4 +1,4 @@
-﻿import { Feather } from "@expo/vector-icons";
+import { Feather } from "@expo/vector-icons";
 import { usePathname, useRouter } from "expo-router";
 import React from "react";
 import {
@@ -132,8 +132,17 @@ export default function SideMenu({
 
   const [randomLoading, setRandomLoading] = React.useState(false);
   const [loginVisible, setLoginVisible] = React.useState(false);
+  
+  // Логирование изменений me для отладки
   React.useEffect(() => {
-    if (loginVisible && me) setLoginVisible(false);
+    console.log("[SideMenu] me changed:", me ? { id: me.id, username: me.username } : null);
+  }, [me]);
+  
+  React.useEffect(() => {
+    if (loginVisible && me) {
+      console.log("[SideMenu] Closing login modal because me is set");
+      setLoginVisible(false);
+    }
   }, [loginVisible, me]);
 
   const isLandscape = width > height;

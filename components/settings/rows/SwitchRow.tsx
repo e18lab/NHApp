@@ -17,8 +17,8 @@ export default function SwitchRow({
 }: Props) {
   const { colors } = useTheme();
   return (
-    <View style={styles.rowBetween}>
-      <View style={{ flex: 1, paddingRight: 12 }}>
+    <View style={styles.container}>
+      <View style={styles.content}>
         <Text style={[styles.cardTitle, { color: colors.txt }]}>{title}</Text>
         {description ? (
           <Text style={[styles.desc, { color: colors.sub }]}>
@@ -26,24 +26,50 @@ export default function SwitchRow({
           </Text>
         ) : null}
       </View>
-      <Switch
-        value={value}
-        onValueChange={onChange}
-        thumbColor={value ? colors.accent : undefined}
-        trackColor={{ true: colors.accent, false: colors.page }}
-      />
+      <View style={[styles.switchContainer, { 
+        backgroundColor: value ? colors.accent + "20" : colors.page + "30",
+      }]}>
+        <Switch
+          value={value}
+          onValueChange={onChange}
+          thumbColor={value ? colors.accent : "#ffffff"}
+          trackColor={{ 
+            true: colors.accent + "90", 
+            false: colors.page + "50" 
+          }}
+          ios_backgroundColor={colors.page + "50"}
+        />
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  rowBetween: {
+  container: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 12,
-    marginTop: 8,
+    gap: 16,
+    paddingVertical: 8,
+    paddingHorizontal: 4,
   },
-  cardTitle: { fontSize: 16, fontWeight: "700" },
-  desc: { fontSize: 12, marginTop: 4, lineHeight: 16 },
+  content: {
+    flex: 1,
+  },
+  cardTitle: { 
+    fontSize: 16, 
+    fontWeight: "700", 
+    lineHeight: 22,
+    letterSpacing: 0.2,
+  },
+  desc: { 
+    fontSize: 13, 
+    marginTop: 6, 
+    lineHeight: 18, 
+    opacity: 0.75,
+  },
+  switchContainer: {
+    borderRadius: 20,
+    padding: 2,
+  },
 });

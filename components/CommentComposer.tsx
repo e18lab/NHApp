@@ -1,4 +1,4 @@
-﻿import type { ApiComment } from "@/api/online/comments";
+import type { ApiComment } from "@/api/online/comments";
 import { useTheme } from "@/lib/ThemeContext";
 import { useI18n } from "@/lib/i18n/I18nContext";
 import { MaterialIcons } from "@expo/vector-icons";
@@ -6,6 +6,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, { useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -172,11 +173,14 @@ export default function CommentComposer({
         </Pressable>
       </View>
 
-      <Text style={[S.hint, { color: ui.sub }]}>
-        {value.trim().length < 10
-          ? t("commentComposer.hint.needMore", { n: left })
-          : t("commentComposer.hint.captcha")}
-      </Text>
+      {/* Показываем подсказку только для Android (не для Electron) */}
+      {Platform.OS === "android" && (
+        <Text style={[S.hint, { color: ui.sub }]}>
+          {value.trim().length < 10
+            ? t("commentComposer.hint.needMore", { n: left })
+            : t("commentComposer.hint.captcha")}
+        </Text>
+      )}
 
       <CloudflareGate
         visible={gateVisible}
@@ -223,7 +227,11 @@ export default function CommentComposer({
             pendingTextRef.current || value
           );
 
-          if (!normalized?.poster?.avatar_url) {
+          console.log('[CommentComposer] Normalized comment:', normalized);
+          console.log('[CommentComposer] Avatar URL:', normalized?.poster?.avatar_url);
+
+          // Всегда проверяем и устанавливаем poster.id и avatar_url из nh.me если они отсутствуют
+          if (!normalized?.poster?.id || !normalized?.poster?.avatar_url) {
             try {
               const meStr = await AsyncStorage.getItem("nh.me");
               if (meStr) {
@@ -233,7 +241,7 @@ export default function CommentComposer({
                   ...(normalized.poster || {}),
                   id: normalized.poster?.id ?? me?.id,
                   username: normalized.poster?.username ?? me?.username,
-                  ...(av ? { avatar_url: av } : {}),
+                  ...(av && !normalized.poster?.avatar_url ? { avatar_url: av } : {}),
                 } as any;
               }
             } catch {}

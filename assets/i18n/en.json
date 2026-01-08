@@ -232,7 +232,9 @@
   "settings": {
     "appearance": {
       "hue": "Hue: {deg}°",
-      "theme": "App theme"
+      "theme": "App theme",
+      "presets": "Presets",
+      "fullPalette": "Full Palette"
     },
     "display": {
       "androidNote": "On Android, system bars can be revealed with a bottom swipe even in fullscreen.",
@@ -241,6 +243,7 @@
     },
     "language": {
       "choose": "App language",
+      "current": "Current",
       "english": "English",
       "note": "Switch only the interface language. Content language is not affected.",
       "russian": "Русский",
@@ -258,7 +261,13 @@
       "grid": "Catalog grid",
       "language": "Language",
       "reader": "Reader",
-      "storage": "Device storage"
+      "storage": "Device storage",
+      "sync": "Sync"
+    },
+    "sync": {
+      "title": "Sync Data Between Devices",
+      "description": "Share your data via QR code or scan QR code from another device to sync.",
+      "button": "Sync Data"
     },
     "grid": {
       "resetProfile": "Reset this profile",
@@ -533,5 +542,35 @@
       "default": "Try changing the filters or refreshing the list.",
       "noFav": "Like a few books and I'll find similar ones."
     }
+  },
+  "sync": {
+    "title": "Sync Data",
+    "selectMode": "Choose how to sync data between devices in the same network.",
+    "createServer": "Create Server",
+    "createServerDesc": "Start a server and wait for other devices to connect",
+    "findServer": "Find Server",
+    "findServerDesc": "Search for available servers in the network",
+    "serverDescription": "Server is running. Other devices can now connect to sync data.",
+    "serverRunning": "Server Running",
+    "serverAddress": "Address: {ip}:{port}",
+    "startingServer": "Starting server...",
+    "stopServer": "Stop Server",
+    "serverStarted": "Server Started",
+    "serverInfo": "Server is running at {ip}:{port}",
+    "serverNotAvailable": "Server Not Available",
+    "mobileServerHint": "On mobile devices, please use 'Find Server' mode and connect to a server running on another device.",
+    "clientDescription": "Searching for servers in the network...",
+    "searching": "Searching for servers...",
+    "foundServers": "Found Servers:",
+    "noServersFound": "No Servers Found",
+    "noServersMessage": "No sync servers found in the network. Make sure another device is running the server.",
+    "manualConnect": "Or enter server URL manually:",
+    "connect": "Connect",
+    "syncing": "Syncing data...",
+    "success": "Success",
+    "error": "Error",
+    "synced": "Synced {count} items successfully!",
+    "failed": "Sync failed: {error}",
+    "enterUrl": "Please enter server URL"
   }
 }

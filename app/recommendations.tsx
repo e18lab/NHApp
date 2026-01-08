@@ -1,4 +1,4 @@
-﻿import { CandidateBook, getRecommendations } from "@/api/nhentai";
+import { CandidateBook, getRecommendations } from "@/api/nhentai";
 import BookList from "@/components/BookList";
 import NoResultsPanel from "@/components/NoResultsPanel";
 import { useFilterTags } from "@/context/TagFilterContext";

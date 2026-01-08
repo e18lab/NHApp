@@ -8,15 +8,15 @@ import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 import React, { useEffect, useMemo, useState } from "react";
 import {
-  Alert,
-  Modal,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
+    Alert,
+    Modal,
+    Platform,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    View,
 } from "react-native";
 import Card from "./Card";
 
@@ -337,13 +337,17 @@ export default function StorageManager() {
   return (
     <Card>
       <View style={styles.headerRow}>
-        <Feather name="database" size={16} color={colors.sub} />
-        <Text style={[styles.title, { color: colors.txt }]}>
-          {t("storageManager.title")}
-        </Text>
-        <Text style={[styles.meta, { color: colors.sub }]}>
-          {t("storageManager.meta", { count: items.length, size: kb })}
-        </Text>
+        <View style={[styles.iconContainer, { backgroundColor: colors.accent + "15" }]}>
+          <Feather name="database" size={18} color={colors.accent} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.title, { color: colors.txt }]}>
+            {t("storageManager.title")}
+          </Text>
+          <Text style={[styles.meta, { color: colors.sub }]}>
+            {t("storageManager.meta", { count: items.length, size: kb })}
+          </Text>
+        </View>
       </View>
 
       <View
@@ -603,20 +607,36 @@ const styles = StyleSheet.create({
   headerRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    marginBottom: 8,
+    gap: 12,
+    marginBottom: 12,
   },
-  title: { fontSize: 16, fontWeight: "700", flex: 1 },
-  meta: { fontSize: 12 },
+  iconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  title: { 
+    fontSize: 17, 
+    fontWeight: "800", 
+    letterSpacing: 0.3,
+    lineHeight: 24,
+  },
+  meta: { 
+    fontSize: 12,
+    marginTop: 2,
+    opacity: 0.75,
+  },
 
   search: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    borderRadius: 10,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    gap: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
   searchInput: { flex: 1, fontSize: 14, paddingVertical: 2 },
   iconBtn: { padding: 6, borderRadius: 8, overflow: "hidden" },
@@ -642,23 +662,24 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: 12,
-    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 14,
+    borderWidth: 1.5,
   },
 
   item: {
-    borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 14,
+    borderWidth: 1,
     marginTop: 10,
+    overflow: "hidden",
   },
   itemHead: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
   },
   k: { fontSize: 13, fontWeight: "700", flex: 1, marginRight: 8 },
   itemBody: { paddingHorizontal: 12, paddingBottom: 12, gap: 10 },

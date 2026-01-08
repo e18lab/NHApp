@@ -36,6 +36,8 @@ type Props = {
   highlight?: boolean;
   mineLabel?: string;
   onPress?: () => void;
+  onPressAvatar?: () => void;
+  onPressName?: () => void;
   onDelete?: (id?: number) => Promise<void> | void;
 };
 
@@ -242,6 +244,8 @@ export default function CommentCard({
   highlight,
   mineLabel,
   onPress,
+  onPressAvatar,
+  onPressName,
   onDelete,
 }: Props) {
   const { colors } = useTheme();
@@ -313,6 +317,31 @@ export default function CommentCard({
       return;
     }
     onPress?.();
+  };
+
+  // Обработчик для навигации в профиль (используется и для аватара, и для имени)
+  // Используем useRef чтобы предотвратить двойной вызов
+  const profilePressRef = useRef(false);
+  const handleProfilePress = (e?: any) => {
+    e?.stopPropagation?.();
+    
+    // Предотвращаем двойной вызов
+    if (profilePressRef.current) return;
+    profilePressRef.current = true;
+    
+    // Предпочитаем onPressName, потом onPressAvatar, потом onPress
+    if (onPressName) {
+      onPressName();
+    } else if (onPressAvatar) {
+      onPressAvatar();
+    } else {
+      onPress?.();
+    }
+    
+    // Сбрасываем флаг через небольшую задержку
+    setTimeout(() => {
+      profilePressRef.current = false;
+    }, 500);
   };
 
   const doTranslate = async () => {
@@ -481,18 +510,29 @@ export default function CommentCard({
         </Modal>
 
         <View style={R.header}>
-          {avatarSrc ? (
-            <Image source={{ uri: avatarSrc }} style={R.avatar} />
-          ) : (
-            <View style={[R.avatar, { backgroundColor: ui.borderDim }]} />
-          )}
+          <Pressable
+            onPress={handleProfilePress}
+            hitSlop={4}
+          >
+            {avatarSrc ? (
+              <Image source={{ uri: avatarSrc }} style={R.avatar} />
+            ) : (
+              <View style={[R.avatar, { backgroundColor: ui.borderDim }]} />
+            )}
+          </Pressable>
 
-          <View style={R.nameTime}>
-            <Text style={[R.name, { color: ui.text }]} numberOfLines={1}>
-              {poster?.username || "user"}
-            </Text>
-            <Text style={[R.time, { color: ui.sub }]}>{timeLabel}</Text>
-          </View>
+          <Pressable
+            style={{ flex: 1, marginLeft: 10 }}
+            onPress={handleProfilePress}
+            hitSlop={4}
+          >
+            <View style={R.nameTime}>
+              <Text style={[R.name, { color: ui.text }]} numberOfLines={1}>
+                {poster?.username || "user"}
+              </Text>
+              <Text style={[R.time, { color: ui.sub }]}>{timeLabel}</Text>
+            </View>
+          </Pressable>
 
           {translated && !showOriginal && (
             <View

@@ -1,15 +1,30 @@
 import axios from "axios";
 import * as FileSystem from "expo-file-system/legacy";
 import { Image, Platform } from "react-native";
+import { electronFileSystem } from "@/utils/electronFileSystem";
 
-// Proxy URL for web version to bypass CORS
-const PROXY_BASE = Platform.OS === "web" 
+// Proxy URL for web version to bypass CORS (но НЕ для Electron)
+// Проверяем Electron динамически, так как window.electron может быть недоступен при инициализации модуля
+const checkIsElectron = () => Platform.OS === "web" && typeof window !== "undefined" && !!(window as any).electron?.isElectron;
+
+const isElectron = checkIsElectron();
+// Логируем только для Electron или web
+if (Platform.OS === "web") {
+  console.log(`[api] Platform.OS: ${Platform.OS}, isElectron: ${isElectron}, electron available: ${!!(typeof window !== "undefined" && (window as any).electron)}`);
+}
+
+const PROXY_BASE = Platform.OS === "web" && !isElectron
   ? (process.env.EXPO_PUBLIC_API_URL || "http://localhost:3002") + "/fpi"
   : null;
 
-const baseURL = Platform.OS === "web" && PROXY_BASE
+// Для Electron всегда используем прямой URL, для обычного web - proxy, для Android/iOS - прямой URL
+const baseURL = Platform.OS === "web" && PROXY_BASE && !isElectron
   ? `${PROXY_BASE}/nhentai/api`
   : "https://nhentai.net/api";
+
+if (Platform.OS === "web") {
+  console.log(`[api] baseURL: ${baseURL}, PROXY_BASE: ${PROXY_BASE}`);
+}
 
 // On web, don't set User-Agent header (browser doesn't allow it)
 const headers: Record<string, string> = {};
@@ -17,10 +32,212 @@ if (Platform.OS !== "web") {
   headers["User-Agent"] = "nh-client";
 }
 
+// Кастомный адаптер для Electron (проверяем динамически)
+const electronAdapter = async (config: any) => {
+  // Проверяем Electron динамически при каждом запросе
+  const isElectronNow = Platform.OS === "web" && typeof window !== "undefined" && !!(window as any).electron?.isElectron;
+  
+  if (!isElectronNow) {
+    // Не Electron (Android/iOS), используем стандартный адаптер axios
+    // Для нативных платформ axios использует встроенный адаптер (fetch для React Native)
+    if (axios.defaults.adapter && typeof axios.defaults.adapter === 'function') {
+      return axios.defaults.adapter(config);
+    }
+    // Fallback: используем встроенный адаптер axios
+    return Promise.reject(new Error('No adapter available'));
+  }
+  
+  // Логируем только для Electron
+  console.log(`[api adapter] Request intercepted: ${config.method?.toUpperCase()} ${config.url}`);
+  
+  const electron = (window as any).electron;
+  if (!electron || !electron.fetchJson) {
+    // Fallback к обычному fetch через proxy
+    console.warn("[api adapter] Electron fetchJson not available, using proxy");
+    // Используем стандартный адаптер axios
+    if (axios.defaults.adapter && typeof axios.defaults.adapter === 'function') {
+      return axios.defaults.adapter(config);
+    }
+    // Fallback: используем встроенный адаптер axios
+    return Promise.reject(new Error('No adapter available'));
+  }
+
+  // Формируем URL с учетом параметров запроса
+  // Axios может передавать URL в разных форматах, нужно проверить все варианты
+  const urlPath = config.url || '';
+  
+  if (!urlPath && !config.baseURL) {
+    console.error(`[api adapter] Both config.url and config.baseURL are undefined! config:`, {
+      method: config.method,
+      url: config.url,
+      baseURL: config.baseURL,
+      params: config.params,
+    });
+    return Promise.reject(new Error('URL is required'));
+  }
+  
+  // Формируем полный URL
+  let url: string;
+  if (config.baseURL) {
+    // Если есть baseURL, объединяем его с url
+    url = urlPath.startsWith('/') 
+      ? `${config.baseURL}${urlPath}`
+      : `${config.baseURL}/${urlPath}`;
+  } else if (urlPath.startsWith("http")) {
+    // Если URL уже полный
+    url = urlPath;
+  } else {
+    // Иначе используем дефолтный baseURL
+    url = urlPath.startsWith('/')
+      ? `https://nhentai.net/api${urlPath}`
+      : `https://nhentai.net/api/${urlPath}`;
+  }
+
+  // Axios может передавать параметры отдельно в config.params
+  // Нужно добавить их к URL, если они есть
+  if (config.params && Object.keys(config.params).length > 0) {
+    const params = new URLSearchParams();
+    Object.keys(config.params).forEach(key => {
+      const value = config.params[key];
+      // Пропускаем только undefined и null, но включаем пустые строки и 0
+      if (value !== undefined && value !== null) {
+        // Для пустых строк и пробелов используем правильное значение
+        const stringValue = String(value);
+        params.append(key, stringValue);
+      }
+    });
+    const queryString = params.toString();
+    if (queryString) {
+      url += (url.includes('?') ? '&' : '?') + queryString;
+    }
+  }
+  
+  // Также проверяем, есть ли параметры уже в config.url
+  // (axios может их добавить автоматически, но мы перехватываем до этого)
+
+  console.log(`[api adapter] Using Electron IPC for: ${url}`);
+  console.log(`[api adapter] config.url: ${config.url}, config.params:`, config.params);
+
+  // Получаем cookies из AsyncStorage для Electron
+  const { cookieHeaderString } = await import("@/api/auth");
+  const cookieHeader = await cookieHeaderString({ preferNative: false });
+  
+  const requestHeaders: Record<string, string> = {
+    ...config.headers,
+  };
+  
+  if (cookieHeader) {
+    requestHeaders["Cookie"] = cookieHeader;
+    console.log(`[api adapter] Added Cookie header (length: ${cookieHeader.length})`);
+  } else {
+    console.warn(`[api adapter] No cookie header available`);
+  }
+
+  try {
+    const result = await electron.fetchJson(url, {
+      method: config.method?.toUpperCase() || "GET",
+      headers: requestHeaders,
+      body: config.data,
+    });
+    
+    console.log(`[api adapter] IPC result: success=${result.success}, status=${result.status}`);
+
+    if (!result.success) {
+      console.error(`[api adapter] IPC request failed:`, result.error);
+      const error: any = new Error(result.error || "Request failed");
+      error.response = {
+        status: 500,
+        statusText: result.error || "Request failed",
+        data: { error: result.error },
+        headers: {},
+      };
+      throw error;
+    }
+
+    // Логируем ошибки 403/401 для отладки
+    if (result.status === 403 || result.status === 401) {
+      console.error(`[api adapter] Access denied (${result.status}), response body:`, result.body?.substring(0, 500));
+    }
+
+    // Проверяем на Cloudflare challenge в теле ответа
+    if (result.body && typeof result.body === 'string' && (
+      result.body.includes('challenges.cloudflare.com') ||
+      result.body.includes('cf-browser-verification') ||
+      result.body.includes('Just a moment') ||
+      result.body.includes('Checking your browser')
+    )) {
+      console.warn(`[api adapter] Cloudflare challenge detected in response body`);
+      const error: any = new Error('Cloudflare challenge detected');
+      error.response = {
+        status: 403,
+        statusText: 'Cloudflare Challenge',
+        data: { error: 'Cloudflare challenge detected' },
+        headers: result.headers || {},
+      };
+      throw error;
+    }
+
+    // Парсим JSON если это JSON ответ
+    let data = result.body;
+    const contentType = result.headers?.["content-type"] || result.headers?.["Content-Type"] || "";
+    if (contentType.includes("application/json") || !contentType) {
+      try {
+        data = JSON.parse(result.body);
+        
+        // Проверяем, что это не Cloudflare challenge в JSON
+        if (data && typeof data === 'object' && (
+          JSON.stringify(data).includes('cloudflare') ||
+          JSON.stringify(data).includes('challenge')
+        )) {
+          console.warn(`[api adapter] Cloudflare challenge detected in JSON response`);
+          const error: any = new Error('Cloudflare challenge detected');
+          error.response = {
+            status: 403,
+            statusText: 'Cloudflare Challenge',
+            data: { error: 'Cloudflare challenge detected' },
+            headers: result.headers || {},
+          };
+          throw error;
+        }
+        
+        if (result.status === 403 || result.status === 401) {
+          console.error(`[api adapter] Parsed error response:`, data);
+        } else {
+          console.log(`[api adapter] Parsed JSON response, data keys:`, Object.keys(data || {}));
+        }
+      } catch (e: any) {
+        // Если это наша ошибка Cloudflare, пробрасываем дальше
+        if (e?.message?.includes('Cloudflare')) {
+          throw e;
+        }
+        console.warn(`[api adapter] Failed to parse JSON:`, e);
+        // Если не JSON, возвращаем как есть
+      }
+    }
+
+    console.log(`[api adapter] Returning response with status ${result.status || 200}`);
+    
+    // Axios ожидает специфический формат ответа
+    return {
+      data,
+      status: result.status || 200,
+      statusText: result.statusText || "OK",
+      headers: result.headers || {},
+      config,
+      request: {}, // Axios может ожидать request объект
+    };
+  } catch (err: any) {
+    console.error(`[api adapter] Error in adapter:`, err);
+    throw err;
+  }
+};
+
+// Устанавливаем адаптер только для Electron, для Android/iOS axios использует стандартный
 const api = axios.create({
   baseURL,
   headers,
   timeout: 10_000,
+  ...(isElectron ? { adapter: electronAdapter } : {}), // Адаптер только для Electron
 });
 
 // Request interceptor removed - no proxy needed for web
@@ -144,16 +361,64 @@ const mapComment = (c: any): GalleryComment => {
 
 export const getComments = async (id: number): Promise<GalleryComment[]> => {
   if (!id) throw new Error("getComments: invalid gallery id");
-  const { data } = await api.get(`/gallery/${id}/comments`);
-  const arr = Array.isArray(data) ? data : [];
-  return arr.map(mapComment);
+  try {
+    console.log(`[getComments] Fetching comments for gallery ${id}`);
+    const { data } = await api.get(`/gallery/${id}/comments`);
+    
+    // Проверяем, что это не Cloudflare challenge
+    if (data && typeof data === 'string' && (
+      data.includes('challenges.cloudflare.com') ||
+      data.includes('cf-browser-verification')
+    )) {
+      console.warn(`[getComments] Cloudflare challenge detected for ${id}`);
+      return [];
+    }
+    
+    console.log(`[getComments] Response data:`, Array.isArray(data) ? `${data.length} items` : typeof data);
+    const arr = Array.isArray(data) ? data : [];
+    return arr.map(mapComment);
+  } catch (err: any) {
+    // Если это Cloudflare challenge, возвращаем пустой массив вместо ошибки
+    if (err?.response?.data?.error?.includes('Cloudflare') || 
+        err?.response?.data?.includes('Cloudflare') ||
+        err?.message?.includes('Cloudflare')) {
+      console.warn(`[getComments] Cloudflare challenge for ${id}, returning empty array`);
+      return [];
+    }
+    console.error(`[getComments] Error fetching comments for ${id}:`, err?.message || err);
+    throw err;
+  }
 };
 
 export const getRelatedByApi = async (id: number): Promise<Book[]> => {
   if (!id) throw new Error("getRelatedByApi: invalid gallery id");
-  const { data } = await api.get(`/gallery/${id}/related`);
-  const arr = Array.isArray(data?.result) ? data.result : [];
-  return arr.map(parseBookData);
+  try {
+    console.log(`[getRelatedByApi] Fetching related books for gallery ${id}`);
+    const { data } = await api.get(`/gallery/${id}/related`);
+    
+    // Проверяем, что это не Cloudflare challenge
+    if (data && typeof data === 'string' && (
+      data.includes('challenges.cloudflare.com') ||
+      data.includes('cf-browser-verification')
+    )) {
+      console.warn(`[getRelatedByApi] Cloudflare challenge detected for ${id}`);
+      return [];
+    }
+    
+    console.log(`[getRelatedByApi] Response data:`, data?.result ? `${data.result.length} items` : 'no result');
+    const arr = Array.isArray(data?.result) ? data.result : [];
+    return arr.map(parseBookData);
+  } catch (err: any) {
+    // Если это Cloudflare challenge, возвращаем пустой массив вместо ошибки
+    if (err?.response?.data?.error?.includes('Cloudflare') || 
+        err?.response?.data?.includes('Cloudflare') ||
+        err?.message?.includes('Cloudflare')) {
+      console.warn(`[getRelatedByApi] Cloudflare challenge for ${id}, returning empty array`);
+      return [];
+    }
+    console.error(`[getRelatedByApi] Error fetching related for ${id}:`, err?.message || err);
+    throw err;
+  }
 };
 
 export const getRelatedBooks = async (
@@ -201,40 +466,132 @@ export const getRelatedBooks = async (
 };
 
 export const loadBookFromLocal = async (id: number): Promise<Book | null> => {
-  const nhDir = `${FileSystem.documentDirectory}NHAppAndroid/`;
-  if (!(await FileSystem.getInfoAsync(nhDir)).exists) return null;
+  // Для Electron используем electronFileSystem, для нативных платформ - expo-file-system
+  const isElectron = Platform.OS === "web" && typeof window !== "undefined" && !!(window as any).electron?.isElectron;
+  
+  let nhDir: string;
+  let fs: any;
+  let pathJoinSync: (...paths: string[]) => string;
+  let pathJoinAsync: ((...paths: string[]) => Promise<string>) | null = null;
+  
+  if (isElectron) {
+    try {
+      const baseDir = await electronFileSystem.getDocumentDirectory();
+      const electron = (window as any).electron;
+      // Убираем завершающий разделитель перед pathJoin, чтобы избежать двойных слэшей
+      const baseDirTrimmed = baseDir.endsWith(await electron.pathSep()) 
+        ? baseDir.slice(0, -1) 
+        : baseDir;
+      nhDir = await electron.pathJoin(baseDirTrimmed, "NHAppAndroid") + await electron.pathSep();
+      fs = electronFileSystem;
+      pathJoinAsync = async (...paths: string[]) => {
+        // Убираем завершающие разделители из всех путей кроме последнего
+        const sep = await electron.pathSep();
+        const cleanedPaths: string[] = [];
+        for (let i = 0; i < paths.length; i++) {
+          const p = paths[i];
+          if (i === paths.length - 1) {
+            cleanedPaths.push(p);
+          } else {
+            cleanedPaths.push(p.endsWith(sep) ? p.slice(0, -1) : p);
+          }
+        }
+        return await electron.pathJoin(...cleanedPaths);
+      };
+      pathJoinSync = () => { throw new Error('pathJoinSync not available in Electron'); };
+    } catch (err) {
+      console.error("[loadBookFromLocal] Failed to get Electron document directory:", err);
+      return null;
+    }
+  } else {
+    nhDir = `${FileSystem.documentDirectory}NHAppAndroid/`;
+    fs = FileSystem;
+    pathJoinSync = (...paths: string[]) => {
+      // Убираем завершающие слэши из всех путей кроме последнего
+      const cleanedPaths = paths.map((p, i) => {
+        if (i === paths.length - 1) return p;
+        return p.endsWith("/") ? p.slice(0, -1) : p;
+      });
+      return cleanedPaths.join("/");
+    };
+  }
+  
+  // Универсальная функция pathJoin
+  const pathJoin = async (...paths: string[]): Promise<string> => {
+    if (pathJoinAsync) {
+      return await pathJoinAsync(...paths);
+    }
+    return Promise.resolve(pathJoinSync(...paths));
+  };
 
-  const titles = await FileSystem.readDirectoryAsync(nhDir);
+  try {
+    const info = await fs.getInfoAsync(nhDir);
+    if (!info.exists) return null;
+  } catch (err) {
+    return null;
+  }
+
+  let titles: string[];
+  try {
+    titles = await fs.readDirectoryAsync(nhDir);
+  } catch (err) {
+    return null;
+  }
 
   for (const title of titles) {
-    const titleDir = `${nhDir}${title}/`;
+    const titleDir = await pathJoin(nhDir, title);
 
     const idMatch = title.match(/^(\d+)_/);
     const titleId = idMatch ? Number(idMatch[1]) : null;
 
-    const langs = await FileSystem.readDirectoryAsync(titleDir);
-    for (const lang of langs) {
-      const langDir = `${titleDir}${lang}/`;
-      const metaUri = `${langDir}metadata.json`;
+    let langs: string[];
+    try {
+      langs = await fs.readDirectoryAsync(titleDir);
+    } catch (err) {
+      continue;
+    }
 
-      if (!(await FileSystem.getInfoAsync(metaUri)).exists) continue;
+    for (const lang of langs) {
+      const langDir = await pathJoin(titleDir, lang);
+      const metaUri = await pathJoin(langDir, "metadata.json");
 
       try {
-        const raw = await FileSystem.readAsStringAsync(metaUri);
+        const metaInfo = await fs.getInfoAsync(metaUri);
+        if (!metaInfo.exists) continue;
+      } catch (err) {
+        continue;
+      }
+
+      try {
+        const raw = await fs.readAsStringAsync(metaUri);
         const book: Book = JSON.parse(raw);
 
         if (book.id !== id) continue;
         if (titleId && titleId !== book.id) continue;
 
-        const images = (await FileSystem.readDirectoryAsync(langDir))
-          .filter((f) => f.startsWith("Image"))
-          .sort();
+        let images: string[];
+        try {
+          images = (await fs.readDirectoryAsync(langDir))
+            .filter((f: string) => f.startsWith("Image"))
+            .sort();
+        } catch (err) {
+          continue;
+        }
 
         const pages: BookPage[] = await Promise.all(
           images.map(
-            (img, idx) =>
-              new Promise<BookPage>((res, rej) => {
-                const uri = `${langDir}${img}`;
+            async (img, idx): Promise<BookPage> => {
+              const imgPath = await pathJoin(langDir, img);
+              // Для Android используем путь напрямую (expo-file-system работает с путями)
+              // Для Electron используем local:// протокол (обходит webSecurity)
+              // Для Windows путей используем формат local:///C:/... (три слэша для абсолютного пути)
+              // Нормализуем путь: заменяем обратные слэши на прямые
+              const uri = isElectron 
+                ? `local:///${imgPath.replace(/\\/g, '/')}`
+                : imgPath; // Для Android expo-file-system работает с путями напрямую
+              
+              // Для Electron может потребоваться другой способ получения размеров
+              return new Promise<BookPage>((res, rej) => {
                 Image.getSize(
                   uri,
                   (w, h) =>
@@ -245,9 +602,20 @@ export const loadBookFromLocal = async (id: number): Promise<Book | null> => {
                       height: h,
                       page: idx + 1,
                     }),
-                  rej
+                  (err) => {
+                    // Fallback: используем дефолтные размеры если не удалось получить
+                    console.warn(`[loadBookFromLocal] Failed to get size for ${uri}:`, err);
+                    res({
+                      url: uri,
+                      urlThumb: uri,
+                      width: 800,
+                      height: 1200,
+                      page: idx + 1,
+                    });
+                  }
                 );
-              })
+              });
+            }
           )
         );
 
@@ -1276,7 +1644,8 @@ export const searchBooksRecomendation = async (
       : sort;
 
   const effectivePerPage = Math.min(perPage || 24, 100);
-  const { data } = await api.get("/galleries/search", {
+  const url = "/galleries/search";
+  const { data } = await api.get(url, {
     params: {
       query: nhQuery,
       page: +page || 1,

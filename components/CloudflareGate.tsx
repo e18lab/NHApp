@@ -1,4 +1,4 @@
-﻿import { useI18n } from "@/lib/i18n/I18nContext";
+import { useI18n } from "@/lib/i18n/I18nContext";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, {
   useCallback,
@@ -12,6 +12,7 @@ import {
   Animated,
   Easing,
   Modal,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -100,11 +101,85 @@ export default function CloudflareGate({
 }: Props) {
   const { t } = useI18n();
 
+  // Проверяем, это Electron?
+  const isElectron = Platform.OS === "web" && typeof window !== "undefined" && !!(window as any).electron?.isElectron;
+
   const [loading, setLoading] = useState(true);
   const [tries, setTries] = useState(0);
   const [showWeb, setShowWeb] = useState(false);
   const progress = useRef(new Animated.Value(0)).current;
   const webRef = useRef<WebView>(null);
+
+  // Для Electron используем IPC метод
+  const handleElectronCloudflare = useCallback(async () => {
+    if (!isElectron || !visible) return;
+
+    try {
+      setLoading(true);
+      const electron = (window as any).electron;
+      
+      if (!electron || !electron.openCloudflareChallenge) {
+        console.warn("[CloudflareGate] Electron IPC method not available");
+        setLoading(false);
+        return;
+      }
+
+      // Небольшая задержка, чтобы избежать множественных вызовов
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Проверяем авторизацию через cookies
+      try {
+        const cookiesResult = await electron.getCookies('https://nhentai.net');
+        const hasSession = cookiesResult.success && cookiesResult.cookies && cookiesResult.cookies.sessionid;
+        
+        if (!hasSession) {
+          console.warn("[CloudflareGate] User not logged in, cannot post comments");
+          // Можно показать сообщение или предложить авторизоваться
+          // Но для простоты просто открываем окно - пользователь может авторизоваться там
+        }
+      } catch (err) {
+        console.warn("[CloudflareGate] Failed to check cookies:", err);
+      }
+
+      // Используем URL с якорем на форму комментария, чтобы сразу показать форму
+      const url = galleryId 
+        ? `https://nhentai.net/g/${galleryId}/#comment_form` 
+        : 'https://nhentai.net/#comment_form';
+      console.log(`[CloudflareGate] Opening Cloudflare challenge window for: ${url}`);
+      
+      const result = await electron.openCloudflareChallenge({
+        url,
+        galleryId,
+        prefillText,
+      });
+
+      if (result.success) {
+        // Синхронизируем cookies
+        if (result.cookies) {
+          const { csrf, session, cf } = result.cookies;
+          if (csrf) await AsyncStorage.setItem("nh.csrf", csrf);
+          if (session) await AsyncStorage.setItem("nh.session", session);
+          if (cf) await AsyncStorage.setItem("nh.cf_clearance", cf);
+        }
+
+        // Если комментарий был отправлен
+        if (result.comment) {
+          onPosted?.(result.comment);
+        }
+
+        // Закрываем модалку
+        onClose();
+      } else {
+        console.warn("[CloudflareGate] Cloudflare challenge failed:", result.error);
+        setTries((t) => t + 1);
+      }
+    } catch (err: any) {
+      console.error("[CloudflareGate] Error in Electron Cloudflare challenge:", err);
+      setTries((t) => t + 1);
+    } finally {
+      setLoading(false);
+    }
+  }, [isElectron, visible, galleryId, prefillText, onPosted, onClose]);
 
   useEffect(() => {
     if (visible) {
@@ -112,8 +187,13 @@ export default function CloudflareGate({
       setLoading(true);
       progress.setValue(0);
       setTries(0);
+      
+      // Для Electron используем IPC метод вместо WebView
+      if (isElectron) {
+        handleElectronCloudflare();
+      }
     }
-  }, [visible, progress]);
+  }, [visible, progress, isElectron, handleElectronCloudflare]);
 
   useEffect(() => {
     if (showWeb) {
@@ -529,7 +609,11 @@ export default function CloudflareGate({
 
   const reload = () => {
     setTries((t) => t + 1);
-    webRef.current?.reload();
+    if (isElectron) {
+      handleElectronCloudflare();
+    } else {
+      webRef.current?.reload();
+    }
   };
 
   const allowNav = useCallback((req: any): boolean => {
@@ -556,6 +640,11 @@ export default function CloudflareGate({
     inputRange: [0, 1],
     outputRange: [0.985, 1],
   });
+
+  // В Electron не показываем модалку - всё работает в фоне
+  if (isElectron) {
+    return null;
+  }
 
   return (
     <Modal
@@ -600,50 +689,73 @@ export default function CloudflareGate({
               </View>
             )}
 
-            <Animated.View
-              pointerEvents={showWeb ? "auto" : "none"}
-              style={{
-                position: "absolute",
-                inset: 0,
-                opacity: contentOpacity,
-                transform: [{ scale: contentScale }],
-              }}
-            >
-              <WebView
-                ref={webRef}
-                source={{ uri: url + "#comment_form" }}
-                style={{ flex: 1, backgroundColor: "transparent" }}
-                onLoadStart={() => setLoading(true)}
-                onLoadEnd={() => setLoading(false)}
-                scrollEnabled={false}
-                bounces={false}
-                overScrollMode="never"
-                showsHorizontalScrollIndicator={false}
-                showsVerticalScrollIndicator={false}
-                sharedCookiesEnabled
-                thirdPartyCookiesEnabled
-                originWhitelist={["*"]}
-                javaScriptEnabled
-                domStorageEnabled
-                userAgent={UA}
-                injectedJavaScriptBeforeContentLoaded={earlyInject}
-                injectedJavaScript={injectedJS}
-                onMessage={handleMessage}
-                onShouldStartLoadWithRequest={allowNav}
-              />
-              {loading && (
-                <View
-                  style={{
-                    position: "absolute",
-                    inset: 0,
-                    justifyContent: "center",
-                    alignItems: "center",
-                  }}
-                >
-                  <ActivityIndicator />
-                </View>
-              )}
-            </Animated.View>
+            {!isElectron ? (
+              <Animated.View
+                pointerEvents={showWeb ? "auto" : "none"}
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  opacity: contentOpacity,
+                  transform: [{ scale: contentScale }],
+                }}
+              >
+                <WebView
+                  ref={webRef}
+                  source={{ uri: url + "#comment_form" }}
+                  style={{ flex: 1, backgroundColor: "transparent" }}
+                  onLoadStart={() => setLoading(true)}
+                  onLoadEnd={() => setLoading(false)}
+                  scrollEnabled={false}
+                  bounces={false}
+                  overScrollMode="never"
+                  showsHorizontalScrollIndicator={false}
+                  showsVerticalScrollIndicator={false}
+                  sharedCookiesEnabled
+                  thirdPartyCookiesEnabled
+                  originWhitelist={["*"]}
+                  javaScriptEnabled
+                  domStorageEnabled
+                  userAgent={UA}
+                  injectedJavaScriptBeforeContentLoaded={earlyInject}
+                  injectedJavaScript={injectedJS}
+                  onMessage={handleMessage}
+                  onShouldStartLoadWithRequest={allowNav}
+                />
+                {loading && (
+                  <View
+                    style={{
+                      position: "absolute",
+                      inset: 0,
+                      justifyContent: "center",
+                      alignItems: "center",
+                    }}
+                  >
+                    <ActivityIndicator />
+                  </View>
+                )}
+              </Animated.View>
+            ) : (
+              <View
+                style={{
+                  flex: 1,
+                  justifyContent: "center",
+                  alignItems: "center",
+                }}
+              >
+                {loading ? (
+                  <>
+                    <ActivityIndicator />
+                    <Text style={{ marginTop: 8, color: colors.sub, fontSize: 12 }}>
+                      {t("cloudflare.requesting")}
+                    </Text>
+                  </>
+                ) : (
+                  <Text style={{ color: colors.sub, fontSize: 12, textAlign: "center", padding: 16 }}>
+                    {t("cloudflare.caption.tap")}
+                  </Text>
+                )}
+              </View>
+            )}
           </Animated.View>
 
           <View style={S.row}>

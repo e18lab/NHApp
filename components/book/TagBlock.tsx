@@ -1,7 +1,7 @@
 import { useTheme } from "@/lib/ThemeContext";
 import { Feather } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
-import { Image as ExpoImage } from "expo-image";
+import ExpoImage from "@/components/ExpoImageCompat";
 import React, { memo, useEffect, useMemo, useRef, useState } from "react";
 import {
   LayoutChangeEvent,

@@ -42,14 +42,34 @@ export function useAuthBridge(t: (k: string, p?: any) => string) {
   const fetchMeAndMaybeClose = React.useCallback(
     async (why: string) => {
       try {
+        console.log(`[useAuthBridge] fetchMeAndMaybeClose called: ${why}`);
+        
+        // Проверяем токены перед запросом
+        const tokens = await loadTokens();
+        console.log(`[useAuthBridge] Current tokens:`, { 
+          csrf: !!tokens.csrftoken, 
+          session: !!tokens.sessionid 
+        });
+        
         const m = await getMe();
+        console.log(`[useAuthBridge] getMe result:`, m ? { 
+          id: m.id, 
+          username: m.username,
+          slug: m.slug 
+        } : null);
+        
         if (m) {
           setMe(m);
           setStatus(t("login.status.signedAs", { user: m.username, why }));
+          console.log(`[useAuthBridge] User set successfully: ${m.username}`);
+          console.log(`[useAuthBridge] State updated, me should be visible now`);
         } else {
+          console.warn(`[useAuthBridge] getMe returned null/undefined`);
+          console.warn(`[useAuthBridge] This might mean cookies are not working or user is not logged in`);
           setStatus(t("login.status.notSigned", { why }));
         }
-      } catch {
+      } catch (err) {
+        console.error(`[useAuthBridge] getMe error:`, err);
         setStatus(t("login.status.notSigned", { why }));
       }
     },

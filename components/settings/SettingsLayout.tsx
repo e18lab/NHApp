@@ -16,13 +16,16 @@ export default function SettingsLayout({
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <ScrollView
         style={[styles.page, { backgroundColor: colors.bg }]}
-        contentContainerStyle={{ paddingTop: 7, paddingBottom: 24 }}
+        contentContainerStyle={{ paddingTop: 12, paddingBottom: 32 }}
         contentInsetAdjustmentBehavior="never"
+        showsVerticalScrollIndicator={false}
       >
         {children}
-        <Text style={[styles.caption, { color: colors.txt }]}>
-          v{Constants.expoConfig?.version} {t("app.version.beta")}
-        </Text>
+        <View style={styles.footer}>
+          <Text style={[styles.caption, { color: colors.sub }]}>
+            v{Constants.expoConfig?.version} {t("app.version.beta")}
+          </Text>
+        </View>
       </ScrollView>
     </View>
   );
@@ -30,5 +33,15 @@ export default function SettingsLayout({
 
 const styles = StyleSheet.create({
   page: { flex: 1, paddingHorizontal: 16 },
-  caption: { textAlign: "center", opacity: 0.5, marginVertical: 24 },
+  footer: {
+    marginTop: 32,
+    marginBottom: 16,
+    alignItems: "center",
+  },
+  caption: { 
+    textAlign: "center", 
+    opacity: 0.6, 
+    fontSize: 12,
+    letterSpacing: 0.3,
+  },
 });

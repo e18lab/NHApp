@@ -113,11 +113,33 @@ export async function getUserProfile(
   id: number,
   slug?: string
 ): Promise<Me | null> {
-  if (!id || isBrowser) return null;
+  if (!id) return null;
   const base = `${NH_HOST}/users/${id}/${encodeURIComponent(slug || "")}`;
   const url = base.endsWith("/") ? base : base + "/";
   try {
-    const html = await getHtmlWithCookies(url);
+    let html: string;
+    
+    // Для Electron (web платформа) используем IPC метод
+    if (isBrowser) {
+      const isElectron = typeof window !== "undefined" && !!(window as any).electron?.isElectron;
+      if (isElectron) {
+        const electron = (window as any).electron;
+        if (!electron || !electron.fetchHtml) {
+          return null;
+        }
+        const result = await electron.fetchHtml(url);
+        if (!result.success || !result.html) {
+          return null;
+        }
+        html = result.html;
+      } else {
+        // Обычный браузер - не поддерживаем
+        return null;
+      }
+    } else {
+      // Нативные платформы: используем getHtmlWithCookies
+      html = await getHtmlWithCookies(url);
+    }
     const fromHeader = parseProfileHeader(html, id, slug);
     if (fromHeader?.username)
       return { ...fromHeader, profile_url: fromHeader.profile_url || url };
@@ -144,11 +166,33 @@ export async function getUserOverview(
   id: number,
   slug?: string
 ): Promise<UserOverview | null> {
-  if (!id || isBrowser) return null;
+  if (!id) return null;
   const base = `${NH_HOST}/users/${id}/${encodeURIComponent(slug || "")}`;
   const url = base.endsWith("/") ? base : base;
   try {
-    const html = await getHtmlWithCookies(url);
+    let html: string;
+    
+    // Для Electron (web платформа) используем IPC метод
+    if (isBrowser) {
+      const isElectron = typeof window !== "undefined" && !!(window as any).electron?.isElectron;
+      if (isElectron) {
+        const electron = (window as any).electron;
+        if (!electron || !electron.fetchHtml) {
+          return null;
+        }
+        const result = await electron.fetchHtml(url);
+        if (!result.success || !result.html) {
+          return null;
+        }
+        html = result.html;
+      } else {
+        // Обычный браузер - не поддерживаем
+        return null;
+      }
+    } else {
+      // Нативные платформы: используем getHtmlWithCookies
+      html = await getHtmlWithCookies(url);
+    }
 
     const headerUser = parseProfileHeader(html, id, slug) || {
       id,

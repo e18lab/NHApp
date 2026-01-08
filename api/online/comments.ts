@@ -7,6 +7,8 @@ import {
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
 
+declare const window: any;
+
 const NH_HOST = "https://nhentai.net";
 
 // Proxy URL for web version to bypass CORS
@@ -14,9 +16,15 @@ const PROXY_BASE = Platform.OS === "web"
   ? (process.env.EXPO_PUBLIC_API_URL || "http://localhost:3002") + "/fpi"
   : null;
 
-// Helper to get proxied URL on web
+// Helper to check if Electron
+function checkIsElectron(): boolean {
+  return Platform.OS === "web" && typeof window !== "undefined" && !!(window as any).electron?.isElectron;
+}
+
+// Helper to get proxied URL on web (but not Electron)
 function getProxiedUrl(url: string): string {
-  if (Platform.OS === "web" && PROXY_BASE && url.startsWith("https://nhentai.net")) {
+  const isElectron = checkIsElectron();
+  if (Platform.OS === "web" && !isElectron && PROXY_BASE && url.startsWith("https://nhentai.net")) {
     return url.replace("https://nhentai.net", `${PROXY_BASE}/nhentai`);
   }
   return url;
@@ -262,6 +270,36 @@ export async function deleteCommentById(
   };
 
   const tryOnce = async () => {
+    const isElectron = checkIsElectron();
+    
+    // Для Electron используем IPC
+    if (isElectron) {
+      const electron = (window as any).electron;
+      if (electron && electron.fetchJson) {
+        const { csrftoken } = await loadTokens();
+        const cookieHeader = await cookieHeaderString();
+        
+        const result = await electron.fetchJson(url, {
+          method: "POST",
+          headers: {
+            "Accept": "application/json",
+            "X-Requested-With": "XMLHttpRequest",
+            "Origin": NH_HOST,
+            "Referer": opts?.galleryId ? `${NH_HOST}/g/${opts.galleryId}/` : `${NH_HOST}/`,
+            ...(cookieHeader ? { "Cookie": cookieHeader } : {}),
+            ...(csrftoken ? { "X-CSRFToken": csrftoken, "X-Csrftoken": csrftoken } : {}),
+          },
+        });
+        
+        if (!result.success) {
+          throw new Error(result.error || `Delete failed: ${result.status || 'unknown'}`);
+        }
+        
+        return result.body ? (typeof result.body === 'string' ? JSON.parse(result.body) : result.body) : { success: true };
+      }
+    }
+    
+    // Для других платформ используем обычный fetch
     let finalUrl = url;
     finalUrl = getProxiedUrl(finalUrl);
     const res = await fetch(finalUrl, { method: "POST", headers: await buildHeaders() });

@@ -6,7 +6,6 @@ import {
   ActivityIndicator,
   FlatList,
   LayoutChangeEvent,
-  ListRenderItem,
   Modal,
   Pressable,
   RefreshControl,
@@ -15,7 +14,7 @@ import {
   TextInput,
   TouchableOpacity,
   View,
-  useWindowDimensions,
+  useWindowDimensions
 } from "react-native";
 
 import {

@@ -1,4 +1,4 @@
-﻿import type { Book, GalleryComment } from "@/api/nhentai";
+import type { Book, GalleryComment } from "@/api/nhentai";
 import { deleteCommentById, type ApiComment } from "@/api/online/comments";
 import BookList from "@/components/BookList";
 import CommentCard from "@/components/CommentCard";
@@ -62,8 +62,8 @@ export default function Footer({
   myUserId,
   myAvatarUrl,
   myUsername,
-
   refetchComments,
+  onCommentSectionLayout,
 }: {
   galleryId: number;
   related: Book[];
@@ -81,6 +81,7 @@ export default function Footer({
   myAvatarUrl?: string;
   myUsername?: string;
   refetchComments?: () => Promise<void>;
+  onCommentSectionLayout?: (offset: number) => void;
 }) {
   const { colors } = useTheme();
   const { t } = useI18n();
@@ -149,6 +150,7 @@ export default function Footer({
 
     const username = poster.username || myUsername || "user";
 
+    // Для нового комментария используем ID из poster или myUserId
     const uid = poster.id ?? myUserId;
 
     return {
@@ -156,7 +158,14 @@ export default function Footer({
       gallery_id: c.gallery_id,
       body: c.body,
       post_date: c.post_date,
-      poster: { ...poster, id: uid, username, avatar_url: avatar } as any,
+      poster: { 
+        ...poster, 
+        id: uid, 
+        username, 
+        avatar_url: avatar,
+        // Убеждаемся, что slug есть (для навигации) и в нижнем регистре
+        slug: (poster.slug || poster.username || username || 'user').toLowerCase(),
+      } as any,
       avatar,
     };
   };
@@ -251,7 +260,23 @@ export default function Footer({
       </View>
 
       {}
-      <View style={[s.sectionHead, { marginTop: 32 }]}>
+      <View 
+        style={[s.sectionHead, { marginTop: 32 }]}
+        ref={(ref) => {
+          if (ref && onCommentSectionLayout) {
+            // Используем setTimeout для измерения после рендера
+            setTimeout(() => {
+              ref.measureInWindow((x, y, width, height, pageX, pageY) => {
+                // Сохраняем примерную позицию для прокрутки
+                // В реальности позиция будет рассчитываться динамически
+                if (onCommentSectionLayout) {
+                  onCommentSectionLayout(y);
+                }
+              });
+            }, 100);
+          }
+        }}
+      >
         <Text
           style={[
             s.galleryLabel,
@@ -309,16 +334,21 @@ export default function Footer({
                 avatar={(c as any).avatar}
                 highlight={isMine}
                 mineLabel={isMine ? t("comments.youComment") : undefined}
-                onPress={() => {
-                  if (!c?.poster?.id) return;
-                  const slug =
+                onPressName={() => {
+                  const posterId = c?.poster?.id;
+                  if (!posterId) {
+                    console.warn('[Footer] No poster ID for comment:', c);
+                    return;
+                  }
+                  const slug = (
                     (c.poster as any).slug ||
                     (c.poster as any).username ||
-                    "user";
+                    "user"
+                  ).toLowerCase();
                   router.push({
                     pathname: "/profile/[id]/[slug]",
                     params: {
-                      id: String((c.poster as any).id),
+                      id: String(posterId),
                       slug: String(slug),
                     },
                   });

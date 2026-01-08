@@ -1,6 +1,6 @@
 import NhModal from "@/components/nhModal";
 import { useTheme } from "@/lib/ThemeContext";
-import { Image as ExpoImage } from "expo-image";
+import ExpoImage from "@/components/ExpoImageCompat";
 import { VideoView, useVideoPlayer } from "expo-video";
 import React, { useMemo, useState } from "react";
 import {

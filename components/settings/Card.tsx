@@ -1,6 +1,6 @@
 import { useTheme } from "@/lib/ThemeContext";
 import React from "react";
-import { StyleSheet, View } from "react-native";
+import { Platform, StyleSheet, View } from "react-native";
 
 export default function Card({ children }: { children: React.ReactNode }) {
   const { colors } = useTheme();
@@ -8,7 +8,17 @@ export default function Card({ children }: { children: React.ReactNode }) {
     <View
       style={[
         styles.card,
-        { backgroundColor: colors.tagBg, borderColor: colors.page },
+        { 
+          backgroundColor: colors.tagBg, 
+          borderColor: colors.page + "40",
+          ...(Platform.OS === 'web' && {
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: 0.08,
+            shadowRadius: 12,
+            elevation: 4,
+          }),
+        },
       ]}
     >
       {children}
@@ -18,10 +28,11 @@ export default function Card({ children }: { children: React.ReactNode }) {
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: 14,
-    paddingVertical: 16,
-    paddingHorizontal: 14,
-    marginBottom: 20,
-    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 20,
+    paddingVertical: 20,
+    paddingHorizontal: 18,
+    marginBottom: 16,
+    borderWidth: 1,
+    overflow: 'hidden',
   },
 });

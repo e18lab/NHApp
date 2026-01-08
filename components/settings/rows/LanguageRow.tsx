@@ -1,7 +1,8 @@
 import { useTheme } from "@/lib/ThemeContext";
 import { AppLocale, useI18n } from "@/lib/i18n/I18nContext";
+import { Feather } from "@expo/vector-icons";
 import React from "react";
-import { Pressable, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 
 export default function LanguageRow() {
   const { colors } = useTheme();
@@ -9,11 +10,11 @@ export default function LanguageRow() {
 
   return (
     <View>
-      <Text style={{ fontSize: 16, fontWeight: "700", color: colors.txt }}>
+      <Text style={[styles.title, { color: colors.txt }]}>
         {t("settings.language.choose")}
       </Text>
 
-      <View style={{ flexDirection: "row", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+      <View style={styles.chipContainer}>
         {available.map((opt) => (
           <Chip
             key={opt.code}
@@ -25,9 +26,12 @@ export default function LanguageRow() {
         ))}
       </View>
 
-      <Text style={{ fontSize: 12, color: colors.sub, marginTop: 10 }}>
-        {t("settings.language.note")}
-      </Text>
+      <View style={[styles.noteContainer, { backgroundColor: colors.accent + "08" }]}>
+        <Feather name="info" size={14} color={colors.accent} />
+        <Text style={[styles.note, { color: colors.sub }]}>
+          {t("settings.language.note")}
+        </Text>
+      </View>
     </View>
   );
 }
@@ -46,16 +50,77 @@ function Chip({
   return (
     <Pressable
       onPress={onPress}
-      style={{
-        paddingHorizontal: 12,
-        paddingVertical: 8,
-        borderRadius: 999,
-        borderWidth: 1,
-        borderColor: active ? colors.accent : colors.page,
-        backgroundColor: active ? colors.accent + "22" : colors.bg,
-      }}
+      style={[
+        styles.chip,
+        {
+          borderColor: active ? colors.accent : colors.page + "60",
+          backgroundColor: active ? colors.accent + "20" : colors.bg,
+          borderWidth: active ? 2 : 1.5,
+        },
+      ]}
+      android_ripple={{ color: colors.accent + "25", borderless: false }}
     >
-      <Text style={{ color: active ? colors.accent : colors.txt, fontWeight: "600" }}>{label}</Text>
+      {active && (
+        <Feather 
+          name="check" 
+          size={16} 
+          color={colors.accent} 
+          style={{ marginRight: 6 }}
+        />
+      )}
+      <Text
+        style={[
+          styles.chipText,
+          { 
+            color: active ? colors.accent : colors.txt,
+            fontWeight: active ? "800" : "600",
+          },
+        ]}
+      >
+        {label}
+      </Text>
     </Pressable>
   );
 }
+
+const styles = StyleSheet.create({
+  title: {
+    fontSize: 17,
+    fontWeight: "800",
+    lineHeight: 24,
+    letterSpacing: 0.3,
+    marginBottom: 4,
+  },
+  chipContainer: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 14,
+    flexWrap: "wrap",
+  },
+  chip: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    borderRadius: 14,
+  },
+  chipText: {
+    fontSize: 14,
+    letterSpacing: 0.2,
+  },
+  noteContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+  },
+  note: {
+    fontSize: 12,
+    lineHeight: 16,
+    opacity: 0.8,
+    flex: 1,
+  },
+});

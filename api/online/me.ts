@@ -1,4 +1,4 @@
-import { NH_HOST } from "@/api/auth";
+import { NH_HOST, nhFetch } from "@/api/auth";
 import { getHtmlWithCookies, isBrowser } from "./http";
 import {
   normalizeNhUrl,
@@ -8,9 +8,46 @@ import {
 import type { Me } from "./types";
 
 export async function getMe(): Promise<Me | null> {
-  if (isBrowser) return null;
   try {
-    const html = await getHtmlWithCookies(NH_HOST + "/");
+    let html: string;
+    
+    // Для Electron (web платформа) используем nhFetch с cookies из AsyncStorage
+    if (isBrowser) {
+      // Проверяем что это Electron, а не обычный браузер
+      const isElectron = typeof window !== "undefined" && !!(window as any).electron?.isElectron;
+      if (!isElectron) {
+        // Обычный браузер - не поддерживаем
+        console.log("[getMe] Not Electron, returning null");
+        return null;
+      }
+      
+      // Electron: используем IPC метод для получения HTML с cookies из Electron session
+      console.log("[getMe] Electron detected, using IPC fetchHtml");
+      try {
+        const electron = (window as any).electron;
+        if (!electron || !electron.fetchHtml) {
+          console.error("[getMe] electron.fetchHtml not available");
+          return null;
+        }
+        
+        const result = await electron.fetchHtml(`${NH_HOST}/`);
+        console.log(`[getMe] fetchHtml result:`, { success: result.success, status: result.status });
+        
+        if (!result.success || !result.html) {
+          console.warn(`[getMe] fetchHtml failed:`, result.error);
+          return null;
+        }
+        
+        html = result.html;
+        console.log(`[getMe] Got HTML, length: ${html.length}`);
+      } catch (err) {
+        console.error("[getMe] IPC fetchHtml error:", err);
+        return null;
+      }
+    } else {
+      // Нативные платформы: используем getHtmlWithCookies
+      html = await getHtmlWithCookies(NH_HOST + "/");
+    }
 
     const fromApp = tryParseUserFromAppScript(html);
     const fromMenu = tryParseUserFromRightMenu(html);
@@ -33,7 +70,8 @@ export async function getMe(): Promise<Me | null> {
     if (!username) return null;
 
     return { id, username, slug, avatar_url, profile_url };
-  } catch {
+  } catch (err) {
+    console.error("[getMe] Error:", err);
     return null;
   }
 }

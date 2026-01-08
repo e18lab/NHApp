@@ -1,5 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Image as ExpoImage } from "expo-image";
+import ExpoImage from "@/components/ExpoImageCompat";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, {
   useCallback,
@@ -82,7 +82,7 @@ export async function getReadHistory(): Promise<ReadHistoryEntry[]> {
   }
 }
 
-async function updateReadHistory(
+export async function updateReadHistory(
   bookId: number,
   current: number,
   total: number
