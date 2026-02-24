@@ -12,9 +12,11 @@ import {
   View,
 } from "react-native";
 
-import DateRangePicker from "@/components/DateRangePicker";
+import { CalendarRangePicker } from "@/components/CalendarRangePicker";
 import { useDrawer } from "@/components/DrawerContext";
 import NhModal from "@/components/nhModal";
+import { FilterDropdown } from "@/components/uikit/FilterDropdown";
+import type { SelectItem } from "@/components/uikit/FilterDropdown";
 import { useDateRange } from "@/context/DateRangeContext";
 import { SortKey, useSort } from "@/context/SortContext";
 import { useTheme } from "@/lib/ThemeContext";
@@ -56,62 +58,6 @@ function IconBtn({
   );
 }
 
-function SectionTitle({ children }: { children: React.ReactNode }) {
-  const { colors } = useTheme();
-  return (
-    <Text
-      style={{
-        color: colors.searchTxt,
-        opacity: 0.8,
-        marginTop: 8,
-        marginBottom: 6,
-        fontWeight: "800",
-        letterSpacing: 0.3,
-      }}
-    >
-      {children}
-    </Text>
-  );
-}
-
-function Chip({
-  label,
-  selected,
-  onPress,
-  icon,
-}: {
-  label: string;
-  selected?: boolean;
-  onPress?: () => void;
-  icon?: React.ReactNode;
-}) {
-  const { colors } = useTheme();
-  return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.chip,
-        {
-          backgroundColor: selected ? colors.accent : colors.page,
-          borderColor: selected ? colors.accent : colors.page,
-          opacity: pressed ? 0.85 : 1,
-        },
-      ]}
-    >
-      <View style={styles.chipInner}>
-        {icon ? <View style={{ marginRight: 6 }}>{icon}</View> : null}
-        <Text
-          style={{
-            color: selected ? colors.bg : colors.searchTxt,
-            fontWeight: selected ? "800" : "600",
-          }}
-        >
-          {label}
-        </Text>
-      </View>
-    </Pressable>
-  );
-}
 
 export function SearchBar() {
   const { colors } = useTheme();
@@ -119,7 +65,15 @@ export function SearchBar() {
   const { sort, setSort } = useSort();
   const router = useRouter();
   const pathname = usePathname();
-  const { from, to, setRange, clearRange } = useDateRange();
+  const {
+    uploaded,
+    customRangeLabel,
+    lastCustomFrom,
+    lastCustomTo,
+    setUploaded,
+    setLastCustomRange,
+    clearUploaded,
+  } = useDateRange();
   const { t } = useI18n();
 
   const PRESETS: {
@@ -191,9 +145,7 @@ export function SearchBar() {
     return "NHApp";
   }
 
-  const [sortOpen, setSortOpen] = useState(false);
   const [backOpen, setBackOpen] = useState(false);
-  const [dateModalOpen, setDateModalOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const rotationAnim = useRef(new Animated.Value(0)).current;
 
@@ -212,8 +164,6 @@ export function SearchBar() {
     hasSeg(pathname, "favorites") ||
     hasSeg(pathname, "favoritesOnline");
 
-  const closeSort = () => setSortOpen(false);
-  const openSort = () => setSortOpen(true);
 
   const backOne = () => {
     setBackOpen(false);
@@ -229,15 +179,91 @@ export function SearchBar() {
     router.replace("/");
   };
 
-  const fmt = (d?: any) => (d ? new Date(d).toLocaleDateString() : "—");
-  const rangeLabel = useMemo(() => `${fmt(from)}  •  ${fmt(to)}`, [from, to]);
-  const hasDateFilter = !!from || !!to;
+  const hasDateFilter = !!uploaded;
 
-  useEffect(() => {
-    if (hasDateFilter && sort !== "date") {
-      setSort("date");
-    }
-  }, [hasDateFilter]);
+  /** "Within last X" — use uploaded:<X so API returns only recent content */
+  const DATE_PRESETS: { value: string; label: string }[] = [
+    { value: "<1h", label: t("explore.date.1h") || "1 час" },
+    { value: "<24h", label: t("explore.date.24h") || "24 часа" },
+    { value: "<3d", label: t("explore.date.3d") || "3 дня" },
+    { value: "<7d", label: t("explore.date.7d") || "Неделя" },
+    { value: "<30d", label: t("explore.date.30d") || "Месяц" },
+    { value: "<90d", label: t("explore.date.90d") || "3 месяца" },
+    { value: "<180d", label: t("explore.date.180d") || "6 месяцев" },
+    { value: "<365d", label: t("explore.date.1y") || "Год" },
+  ];
+
+  const dayMs = 24 * 60 * 60 * 1000;
+
+  const applyCalendarRange = (fromDate: Date, toDate: Date) => {
+    const now = Date.now();
+    const fromDaysAgo = Math.floor((now - fromDate.getTime()) / dayMs);
+    const toDaysAgo = Math.floor((now - toDate.getTime()) / dayMs);
+    const rangeQuery = `uploaded:>${toDaysAgo - 1}d uploaded:<${fromDaysAgo + 1}d`;
+    const fromStr = fromDate.getDate().toString().padStart(2, "0") + "." + (fromDate.getMonth() + 1).toString().padStart(2, "0") + "." + fromDate.getFullYear();
+    const toStr = toDate.getDate().toString().padStart(2, "0") + "." + (toDate.getMonth() + 1).toString().padStart(2, "0") + "." + toDate.getFullYear();
+    setUploaded(rangeQuery, `${fromStr} – ${toStr}`);
+    setLastCustomRange(
+      fromDate.toISOString().slice(0, 10),
+      toDate.toISOString().slice(0, 10)
+    );
+  };
+
+  const dateSubmenuItems: SelectItem[] = [
+    {
+      type: "submenu" as const,
+      label: t("explore.date.customRange") || "Указать даты…",
+      icon: (c: string) => <Feather name="calendar" size={15} color={c} />,
+      children: [
+        {
+          type: "custom" as const,
+          label: t("explore.dateRangeCustom") || "Диапазон дат",
+          backLabel: t("explore.date.backToDateList") || "Назад к выбору дат",
+          content: ({ onClose, openSubmenu }) => (
+            <CalendarRangePicker
+              onApply={applyCalendarRange}
+              onClose={onClose}
+              onReset={() => {
+                clearUploaded();
+                onClose();
+              }}
+              openSubmenu={openSubmenu}
+              initialFrom={lastCustomFrom}
+              initialTo={lastCustomTo}
+            />
+          ),
+        },
+      ],
+    },
+    ...DATE_PRESETS.map(({ value: v, label }) => ({
+      value: v,
+      label,
+    })),
+  ];
+
+  const uploadedLabel =
+    DATE_PRESETS.find((p) => p.value === uploaded)?.label ??
+    (uploaded && uploaded.startsWith("uploaded:")
+      ? (customRangeLabel || (t("explore.dateRangeCustom") || "Диапазон дат"))
+      : null);
+
+  const sortSelectItems: SelectItem[] = [
+    ...PRESETS.map(({ key, label, icon }) => ({
+      value: key,
+      label,
+      icon: icon
+        ? (c: string) => <Feather name={icon as any} size={15} color={c} />
+        : undefined,
+    })),
+    {
+      type: "submenu" as const,
+      label: hasDateFilter && uploadedLabel ? uploadedLabel : (t("explore.dateRange") || "Фильтр по дате"),
+      backLabel: t("explore.date.back") || "Назад",
+      icon: (c: string) => <Feather name="calendar" size={15} color={c} />,
+      children: dateSubmenuItems,
+    },
+  ];
+
 
   useEffect(() => {
     if (Platform.OS !== "web") return;
@@ -364,9 +390,25 @@ export function SearchBar() {
               <Feather name="search" size={18} color={colors.searchTxt} />
             </IconBtn>
 
-            <IconBtn onPress={openSort}>
-              <Feather name="filter" size={18} color={colors.accent} />
-            </IconBtn>
+            <FilterDropdown
+              value={uploaded ?? sort}
+              secondaryValue={uploaded ? sort : undefined}
+              onChange={(val) => {
+                const isDatePreset = DATE_PRESETS.some((p) => p.value === val);
+                if (isDatePreset) {
+                  setUploaded(val === uploaded ? null : val);
+                } else {
+                  setSort(val as SortKey);
+                }
+              }}
+              options={sortSelectItems}
+              keepOpen
+              trigger={({ onPress }) => (
+                <IconBtn onPress={onPress}>
+                  <Feather name="filter" size={18} color={colors.accent} />
+                </IconBtn>
+              )}
+            />
 
             <IconBtn onPress={() => router.push("/tags")}>
               <Feather name="tag" size={18} color={colors.accent} />
@@ -374,119 +416,6 @@ export function SearchBar() {
           </View>
         )}
       </Animated.View>
-
-      <NhModal
-        visible={sortOpen}
-        onClose={closeSort}
-        dimBackground
-        sheetStyle={{
-          backgroundColor: colors.searchBg,
-          borderColor: colors.page,
-        }}
-        title={t("explore.sortBy") || "Сортировка и дата"}
-        hint={
-          hasDateFilter
-            ? t("explore.dateRange")
-            : t("common.chooseOption") || "Выберите вариант"
-        }
-      >
-        <ScrollView
-          style={styles.sheetScroll}
-          contentContainerStyle={{ paddingVertical: 8, paddingHorizontal: 8 }}
-          showsVerticalScrollIndicator={false}
-        >
-          {!hasDateFilter && (
-            <View>
-              <SectionTitle>
-                {t("explore.quickPeriod")}
-              </SectionTitle>
-              <View style={styles.chipsWrap}>
-                {PRESETS.map(({ key, label, icon }) => (
-                  <Chip
-                    key={key}
-                    label={label}
-                    selected={sort === key}
-                    onPress={() => {
-                      if (from || to) clearRange();
-                      setSort(key);
-                      closeSort();
-                    }}
-                    icon={
-                      icon ? (
-                        <Feather
-                          name={icon as any}
-                          size={14}
-                          color={sort === key ? colors.bg : colors.searchTxt}
-                        />
-                      ) : undefined
-                    }
-                  />
-                ))}
-              </View>
-            </View>
-          )}
-
-          <View style={{ marginTop: 4 }}>
-            <SectionTitle>
-              {(t("explore.dateRange")) +
-                (hasDateFilter ? ` — ${rangeLabel}` : "")}
-            </SectionTitle>
-
-            <View style={styles.row}>
-              <Pressable
-                style={[
-                  styles.rowBtn,
-                  styles.rounded,
-                  { backgroundColor: colors.page },
-                ]}
-                onPress={() => setDateModalOpen(true)}
-              >
-                <View style={styles.rowBtnInner}>
-                  <Feather name="calendar" size={16} color={colors.accent} />
-                  <Text style={[styles.rowBtnTxt, { color: colors.searchTxt }]}>
-                    {hasDateFilter
-                      ? rangeLabel
-                      : t("common.select")}
-                  </Text>
-                </View>
-              </Pressable>
-
-              {hasDateFilter && (
-                <Pressable
-                  style={[
-                    styles.rowBtn,
-                    styles.rounded,
-                    { backgroundColor: colors.page },
-                  ]}
-                  onPress={() => {
-                    clearRange();
-                  }}
-                >
-                  <View style={styles.rowBtnInner}>
-                    <Feather name="x-circle" size={16} color={colors.accent} />
-                    <Text
-                      style={[
-                        styles.rowBtnTxt,
-                        { color: colors.accent, fontWeight: "800" },
-                      ]}
-                    >
-                      {t("common.reset")}
-                    </Text>
-                  </View>
-                </Pressable>
-              )}
-            </View>
-          </View>
-        </ScrollView>
-
-        <View style={styles.sheetFooterHint}>
-          <Text style={{ color: colors.searchTxt, opacity: 0.6, fontSize: 12 }}>
-            {hasDateFilter
-              ? t("explore.hintDatesActive")
-              : t("explore.hintPresets")}
-          </Text>
-        </View>
-      </NhModal>
 
       <NhModal
         visible={backOpen}
@@ -523,29 +452,6 @@ export function SearchBar() {
         </ScrollView>
       </NhModal>
 
-      <NhModal
-        visible={dateModalOpen}
-        onClose={() => setDateModalOpen(false)}
-        sheetStyle={{
-          backgroundColor: colors.searchBg,
-          borderColor: colors.page,
-        }}
-        title={t("explore.datePickerTitle")}
-      >
-        <DateRangePicker
-          initialFrom={from ? new Date(from as any) : null}
-          initialTo={to ? new Date(to as any) : null}
-          onClear={() => {
-            clearRange();
-            setDateModalOpen(false);
-          }}
-          onApply={({ from: f, to: t }) => {
-            setRange(f ?? null, t ?? null);
-            setSort("date");
-            setDateModalOpen(false);
-          }}
-        />
-      </NhModal>
     </View>
   );
 }
@@ -594,47 +500,6 @@ const styles = StyleSheet.create({
   },
   sortTxt: { fontSize: 15 },
 
-  chipsWrap: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  chip: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 100,
-  },
-  chipInner: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-  },
-
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginTop: 6,
-  },
-  rowBtn: {
-    flex: 1,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  rowBtnInner: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-  },
-  rowBtnTxt: { fontSize: 15, fontWeight: "700", letterSpacing: 0.3 },
-
-  sheetFooterHint: {
-    paddingHorizontal: 12,
-    paddingTop: 6,
-    paddingBottom: 12,
-  },
 });
 
 export default SearchBar;

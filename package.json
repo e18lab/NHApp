@@ -3,6 +3,9 @@
   "main": "expo-router/entry",
   "version": "1.2.0",
   "scripts": {
+    "fixGradle": "node scripts/fixGradle.js",
+    "android-apply-defaults": "node scripts/android-apply-defaults.js",
+    "android-setup": "npm run fixGradle && npm run android-apply-defaults",
     "sync-version": "node scripts/sync-version.js",
     "android-studio": "npm run sync-version && node ./scripts/sync-android-overrides.js overrides/android && npx expo prebuild && node ./scripts/prepare-android",
     "android-build": "npm run sync-version && npm run android-studio && npx react-native run-android --mode release",
@@ -11,7 +14,11 @@
     "android-release:clean": "cd android && gradlew.bat clean",
     "android-release:assemble": "cd android && gradlew.bat assembleRelease",
     "android-release": "npm run android-release:clean && npm run android-release:assemble",
+    "android-clean-deep": "node scripts/android-clean-deep.js",
+    "android-release:assemble-only": "cd android && gradlew.bat assembleRelease",
+    "android-release:recover": "npm run android-clean-deep && npm run android-release:assemble-only",
     "start": "expo start",
+    "start:lan": "expo start --host lan",
     "reset-project": "node ./scripts/reset-project.js",
     "androidStart": "expo start --android",
     "iosStart": "expo start --ios",
@@ -28,6 +35,7 @@
     "electron:pack": "npm run build:web:electron && cross-env NODE_ENV=production electron-builder --dir",
     "electron:pack:win": "npm run build:web:electron && cross-env NODE_ENV=production CSC_IDENTITY_AUTO_DISCOVERY=false WIN_CSC_LINK= electron-builder --dir --win",
     "lint": "expo lint",
+    "audit:fix": "npm audit fix",
     "android": "expo run:android",
     "ios": "expo run:ios"
   },
@@ -60,6 +68,7 @@
     "expo-haptics": "~15.0.7",
     "expo-image": "~3.0.8",
     "expo-image-manipulator": "~14.0.7",
+    "expo-image-picker": "~17.0.10",
     "expo-intent-launcher": "~13.0.7",
     "expo-linear-gradient": "~15.0.7",
     "expo-linking": "~8.0.8",
@@ -114,6 +123,12 @@
     "react-native-css-transformer": "^2.0.0",
     "react-native-svg-transformer": "^1.5.1",
     "typescript": "~5.9.2"
+  },
+  "overrides": {
+    "tar": "^8.0.0",
+    "minimatch": "^10.2.1",
+    "semver": "^7.6.0",
+    "glob": "^11.0.0"
   },
   "private": true
 }

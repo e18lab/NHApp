@@ -1,6 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { UIKIT_AS_HOME_KEY } from "@/components/settings/keys";
 import * as NavigationBar from "expo-navigation-bar";
-import { Stack, usePathname } from "expo-router";
+import { Stack, usePathname, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import * as Font from "expo-font";
 import { useFonts } from "expo-font";
@@ -222,6 +223,7 @@ function AppShell() {
 function AppContent() {
   const [gridReady, setGridReady] = useState(false);
   const pathname = usePathname();
+  const router = useRouter();
   const { colors } = useTheme();
 
   useEffect(() => {
@@ -235,6 +237,15 @@ function AppContent() {
       alive = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (pathname !== "/") return;
+    let cancelled = false;
+    AsyncStorage.getItem(UIKIT_AS_HOME_KEY).then((v) => {
+      if (v === "true" && !cancelled) router.replace("/uikit");
+    });
+    return () => { cancelled = true; };
+  }, [pathname, router]);
 
   const showSearchBar = useMemo(() => {
     const blocked = pathname === "/read" || pathname === "/search";
@@ -275,6 +286,7 @@ function AppContent() {
         <Stack.Screen name="recommendations" />
         <Stack.Screen name="tags/index" />
         <Stack.Screen name="settings/index" />
+        <Stack.Screen name="uikit" />
         <Stack.Screen name="whats-new" />
         <Stack.Screen name="+not-found" />
       </Stack>

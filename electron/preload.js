@@ -38,6 +38,7 @@ contextBridge.exposeInMainWorld('electron', {
   pathJoin: (...paths) => ipcRenderer.invoke('electron:pathJoin', ...paths),
   pathNormalize: (p) => ipcRenderer.invoke('electron:pathNormalize', p),
   pathSep: () => ipcRenderer.invoke('electron:pathSep'),
+  getDiskSpace: (basePath) => ipcRenderer.invoke('electron:getDiskSpace', basePath),
   downloadFile: (url, filePath) => ipcRenderer.invoke('electron:downloadFile', url, filePath),
   fetchJson: (url, options) => ipcRenderer.invoke('electron:fetchJson', url, options),
   openExternal: (url) => ipcRenderer.invoke('electron:openExternal', url),

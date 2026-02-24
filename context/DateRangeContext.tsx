@@ -1,4 +1,4 @@
-﻿import AsyncStorage from "@react-native-async-storage/async-storage";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, {
   createContext,
   PropsWithChildren,
@@ -8,87 +8,147 @@ import React, {
   useMemo,
   useState,
 } from "react";
-type NullableDate = Date | null;
-type Ctx = {
-  from: NullableDate;
-  to: NullableDate;
-  isHydrated: boolean;
-  setRange: (from: NullableDate, to: NullableDate) => void;
-  setFrom: (d: NullableDate) => void;
-  setTo: (d: NullableDate) => void;
-  clearRange: () => void;
-};
-const DateRangeContext = createContext<Ctx>({
-  from: null,
-  to: null,
-  isHydrated: false,
-  setRange: () => {},
-  setFrom: () => {},
-  setTo: () => {},
-  clearRange: () => {},
-});
-const STORAGE_KEY = "dateRange:v2";
 
-const toISODate = (d: NullableDate) =>
-  d ? new Date(d).toISOString().slice(0, 10) : null;
-const fromISODate = (s: string | null | undefined): NullableDate =>
-  s ? new Date(s + "T00:00:00.000Z") : null;
+type Ctx = {
+  uploaded: string | null;
+  customRangeLabel: string | null;
+  /** Last applied custom range (ISO date strings) for pre-fill and re-apply */
+  lastCustomFrom: string | null;
+  lastCustomTo: string | null;
+  isHydrated: boolean;
+  setUploaded: (val: string | null, displayLabel?: string | null) => void;
+  setLastCustomRange: (from: string, to: string) => void;
+  clearLastCustomRange: () => void;
+  clearUploaded: () => void;
+};
+
+const DateRangeContext = createContext<Ctx>({
+  uploaded: null,
+  customRangeLabel: null,
+  lastCustomFrom: null,
+  lastCustomTo: null,
+  isHydrated: false,
+  setUploaded: () => {},
+  setLastCustomRange: () => {},
+  clearLastCustomRange: () => {},
+  clearUploaded: () => {},
+});
+
+const STORAGE_KEY = "dateRange:v5";
+
 export function DateRangeProvider({ children }: PropsWithChildren) {
-  const [from, setFromState] = useState<NullableDate>(null);
-  const [to, setToState] = useState<NullableDate>(null);
+  const [uploaded, setUploadedState] = useState<string | null>(null);
+  const [customRangeLabel, setCustomRangeLabel] = useState<string | null>(null);
+  const [lastCustomFrom, setLastCustomFromState] = useState<string | null>(null);
+  const [lastCustomTo, setLastCustomToState] = useState<string | null>(null);
   const [isHydrated, setHydrated] = useState(false);
-  const persist = useCallback(async (f: NullableDate, t: NullableDate) => {
-    try {
-      const payload = JSON.stringify({ from: toISODate(f), to: toISODate(t) });
-      await AsyncStorage.setItem(STORAGE_KEY, payload); 
-    } catch {
-    }
-  }, []);
+
   useEffect(() => {
     (async () => {
       try {
         const raw = await AsyncStorage.getItem(STORAGE_KEY);
         if (raw) {
-          const parsed = JSON.parse(raw) as { from?: string | null; to?: string | null };
-          const f = fromISODate(parsed?.from || null);
-          const t = fromISODate(parsed?.to || null);
-          setFromState(f);
-          setToState(t);
+          const parsed = JSON.parse(raw) as {
+            uploaded?: string | null;
+            customRangeLabel?: string | null;
+            lastCustomFrom?: string | null;
+            lastCustomTo?: string | null;
+          };
+          setUploadedState(parsed?.uploaded ?? null);
+          setCustomRangeLabel(parsed?.customRangeLabel ?? null);
+          setLastCustomFromState(parsed?.lastCustomFrom ?? null);
+          setLastCustomToState(parsed?.lastCustomTo ?? null);
         }
       } finally {
         setHydrated(true);
       }
     })();
   }, []);
-  const setRange = useCallback(
-    (f: NullableDate, t: NullableDate) => {
-      setFromState(f);
-      setToState(t);
-      void persist(f, t);
+
+  const persist = useCallback(
+    async (
+      val: string | null,
+      label: string | null,
+      lastFrom: string | null,
+      lastTo: string | null
+    ) => {
+      try {
+        await AsyncStorage.setItem(
+          STORAGE_KEY,
+          JSON.stringify({
+            uploaded: val,
+            customRangeLabel: label,
+            lastCustomFrom: lastFrom,
+            lastCustomTo: lastTo,
+          })
+        );
+      } catch {}
     },
-    [persist]
+    []
   );
-  const setFrom = useCallback(
-    (d: NullableDate) => {
-      setFromState(d);
-      void persist(d, to);
+
+  const setUploaded = useCallback(
+    (val: string | null, displayLabel?: string | null) => {
+      setUploadedState(val);
+      const nextLabel =
+        val == null || !val.startsWith("uploaded:>")
+          ? null
+          : displayLabel !== undefined
+            ? displayLabel
+            : customRangeLabel;
+      setCustomRangeLabel(nextLabel);
+      void persist(val, nextLabel, lastCustomFrom, lastCustomTo);
     },
-    [to, persist]
+    [persist, customRangeLabel, lastCustomFrom, lastCustomTo]
   );
-  const setTo = useCallback(
-    (d: NullableDate) => {
-      setToState(d);
-      void persist(from, d);
+
+  const setLastCustomRange = useCallback(
+    (from: string, to: string) => {
+      setLastCustomFromState(from);
+      setLastCustomToState(to);
+      void persist(uploaded, customRangeLabel, from, to);
     },
-    [from, persist]
+    [persist, uploaded, customRangeLabel]
   );
-  const clearRange = useCallback(() => setRange(null, null), [setRange]);
+
+  const clearLastCustomRange = useCallback(() => {
+    setLastCustomFromState(null);
+    setLastCustomToState(null);
+    void persist(uploaded, customRangeLabel, null, null);
+  }, [persist, uploaded, customRangeLabel]);
+
+  const clearUploaded = useCallback(() => setUploaded(null), [setUploaded]);
+
   const value = useMemo(
-    () => ({ from, to, isHydrated, setRange, setFrom, setTo, clearRange }),
-    [from, to, isHydrated, setRange, setFrom, setTo, clearRange]
+    () => ({
+      uploaded,
+      customRangeLabel,
+      lastCustomFrom,
+      lastCustomTo,
+      isHydrated,
+      setUploaded,
+      setLastCustomRange,
+      clearLastCustomRange,
+      clearUploaded,
+    }),
+    [
+      uploaded,
+      customRangeLabel,
+      lastCustomFrom,
+      lastCustomTo,
+      isHydrated,
+      setUploaded,
+      setLastCustomRange,
+      clearLastCustomRange,
+      clearUploaded,
+    ]
   );
+
   return (
-    <DateRangeContext.Provider value={value}>{children}</DateRangeContext.Provider>
+    <DateRangeContext.Provider value={value}>
+      {children}
+    </DateRangeContext.Provider>
   );
 }
+
 export const useDateRange = () => useContext(DateRangeContext);

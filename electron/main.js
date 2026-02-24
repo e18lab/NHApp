@@ -1,10 +1,61 @@
 const { app, BrowserWindow, ipcMain, shell, dialog, session, protocol, nativeImage } = require('electron');
 const path = require('path');
-const { spawn } = require('child_process');
+const { spawn, execSync } = require('child_process');
 const fs = require('fs');
 const http = require('http');
 const os = require('os');
 const zlib = require('zlib');
+
+/** Рекурсивный размер директории в байтах (синхронно). */
+function getDirectorySizeSync(dirPath) {
+  let total = 0;
+  try {
+    if (!fs.existsSync(dirPath)) return 0;
+    const stat = fs.statSync(dirPath);
+    if (!stat.isDirectory()) return stat.size;
+    const entries = fs.readdirSync(dirPath);
+    for (const name of entries) {
+      const full = path.join(dirPath, name);
+      try {
+        const s = fs.statSync(full);
+        total += s.isDirectory() ? getDirectorySizeSync(full) : s.size;
+      } catch (_) {}
+    }
+  } catch (_) {}
+  return total;
+}
+
+/** Свободное и общее место на диске для пути (байты). */
+function getDiskSpaceForPath(dirPath) {
+  const resolved = path.resolve(dirPath || app.getPath('userData'));
+  const platform = process.platform;
+  try {
+    if (platform === 'win32') {
+      const drive = path.parse(resolved).root.replace(/\\$/, '') || 'C:';
+      const out = execSync(`wmic logicaldisk where "DeviceID='${drive}'" get FreeSpace,Size`, { encoding: 'utf8', windowsHide: true });
+      const lines = out.trim().split(/\r?\n/).filter(Boolean);
+      if (lines.length >= 2) {
+        const nums = lines[1].trim().split(/\s+/).map(Number).filter(n => !Number.isNaN(n));
+        if (nums.length >= 2) return { free: nums[0], total: nums[1] };
+      }
+    } else {
+      const out = execSync(`df -k "${resolved}"`, { encoding: 'utf8' });
+      const lines = out.trim().split('\n');
+      if (lines.length >= 2) {
+        const parts = lines[1].trim().split(/\s+/);
+        const totalK = parseInt(parts[1], 10);
+        const usedK = parseInt(parts[2], 10);
+        const availK = parseInt(parts[3], 10);
+        if (!Number.isNaN(totalK) && !Number.isNaN(availK)) {
+          return { free: availK * 1024, total: totalK * 1024 };
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[getDiskSpaceForPath]', e.message);
+  }
+  return { free: 0, total: 0 };
+}
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 const isTest = process.env.ELECTRON_TEST === 'true';
@@ -2098,6 +2149,31 @@ ipcMain.handle('electron:getPath', async (event, name) => {
     return app.getPath(name);
   } catch (error) {
     return null;
+  }
+});
+
+ipcMain.handle('electron:getDiskSpace', async (event, basePath) => {
+  try {
+    const dir = basePath && typeof basePath === 'string' ? path.resolve(basePath) : path.join(app.getPath('pictures'), 'NHAppSaves');
+    const { free, total } = getDiskSpaceForPath(dir);
+    let documentDirSize = 0;
+    let downloadedSize = 0;
+    if (fs.existsSync(dir)) {
+      documentDirSize = getDirectorySizeSync(dir);
+      const nhAppDir = path.join(dir, 'NHAppAndroid');
+      if (fs.existsSync(nhAppDir)) {
+        downloadedSize = getDirectorySizeSync(nhAppDir);
+      }
+    }
+    return {
+      success: true,
+      free,
+      total,
+      downloaded: downloadedSize,
+      appStorage: documentDirSize,
+    };
+  } catch (error) {
+    return { success: false, error: error.message };
   }
 });
 

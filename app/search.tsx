@@ -73,8 +73,8 @@ export default function SearchScreen() {
   const router = useRouter();
   const { includes, excludes } = useFilterTags();
   const { sort } = useSort();
-  const { from: dateFrom, to: dateTo, clearRange } = useDateRange();
-  const dateFilterActive = !!dateFrom || !!dateTo;
+  const { uploaded, clearUploaded } = useDateRange();
+  const dateFilterActive = !!uploaded;
   const params = useLocalSearchParams<{ query?: string | string[] }>();
   const queryParam = typeof params.query === "string" ? params.query : "";
   const [q, setQ] = useState(queryParam);
@@ -314,7 +314,7 @@ export default function SearchScreen() {
                 >
                   Открой результаты или{" "}
                   <Text
-                    onPress={clearRange}
+                    onPress={clearUploaded}
                     style={{ color: colors.accent, fontWeight: "800" }}
                   >
                     сбрось даты

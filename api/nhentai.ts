@@ -1107,6 +1107,8 @@ interface SearchParams {
   excludeTags?: TagFilter[];
   filterTags?: TagFilter[];
   contentType?: "new" | "popular" | "";
+  /** Relative time filter appended to query, e.g. "24h", "7d", "1m" */
+  uploaded?: string;
   dateFrom?: string | number | Date;
   dateTo?: string | number | Date;
   onProgress?: (p: DateSearchProgress) => void;
@@ -1125,6 +1127,7 @@ export const searchBooks = async (
     includeTags = params.filterTags ?? [],
     excludeTags = [],
     contentType = "",
+    uploaded,
     dateFrom,
     dateTo,
     onProgress,
@@ -1142,7 +1145,12 @@ export const searchBooks = async (
         .map((t) => `-${t.type.replace(/s$/, "")}:"${t.name}"`)
         .join(" ")
     : "";
-  let nhQuery = [query.trim(), includePart, excludePart]
+  const uploadedPart = uploaded
+    ? uploaded.startsWith("uploaded:")
+      ? uploaded
+      : `uploaded:${uploaded}`
+    : "";
+  let nhQuery = [query.trim(), includePart, excludePart, uploadedPart]
     .filter(Boolean)
     .join(" ")
     .trim();
@@ -1155,7 +1163,7 @@ export const searchBooks = async (
     "popular-month",
     "date",
   ];
-  const hasDates = dateFrom != null || dateTo != null;
+  const hasDates = !uploaded && (dateFrom != null || dateTo != null);
   let realSort =
     contentType === "new"
       ? "date"

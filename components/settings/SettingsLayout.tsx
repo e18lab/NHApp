@@ -1,9 +1,10 @@
 import { getElectronVersion, isElectron } from "@/electron/bridge";
 import { useI18n } from "@/lib/i18n/I18nContext";
 import { useTheme } from "@/lib/ThemeContext";
+import { useRouter } from "expo-router";
 import Constants from "expo-constants";
-import React, { useEffect, useState } from "react";
-import { Platform, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import React, { useEffect, useRef, useState } from "react";
+import { Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 
 export default function SettingsLayout({
   children,
@@ -23,6 +24,31 @@ export default function SettingsLayout({
   const versionDisplay = isElectron() && electronVersion != null
     ? electronVersion
     : Constants.expoConfig?.version ?? "";
+
+  const router = useRouter();
+  const tapCountRef = useRef(0);
+  const resetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const onVersionPress = () => {
+    if (resetTimeoutRef.current) {
+      clearTimeout(resetTimeoutRef.current);
+      resetTimeoutRef.current = null;
+    }
+    tapCountRef.current += 1;
+    if (tapCountRef.current >= 3) {
+      tapCountRef.current = 0;
+      router.push("/uikit");
+      return;
+    }
+    resetTimeoutRef.current = setTimeout(() => {
+      tapCountRef.current = 0;
+      resetTimeoutRef.current = null;
+    }, 1500);
+  };
+
+  useEffect(() => () => {
+    if (resetTimeoutRef.current) clearTimeout(resetTimeoutRef.current);
+  }, []);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
@@ -45,9 +71,11 @@ export default function SettingsLayout({
           {children}
         </View>
         <View style={styles.footer}>
-          <Text style={[styles.caption, { color: colors.sub }]}>
-            v{versionDisplay} {t("app.version.beta")}
-          </Text>
+          <Pressable onPress={onVersionPress} hitSlop={12}>
+            <Text style={[styles.caption, { color: colors.sub }]}>
+              v{versionDisplay} {t("app.version.beta")}
+            </Text>
+          </Pressable>
         </View>
       </ScrollView>
     </View>

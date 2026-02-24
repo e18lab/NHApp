@@ -1,7 +1,5 @@
 import {
   Book,
-  DateSearchPhase,
-  DateSearchProgress,
   searchBooks,
 } from "@/api/nhentai";
 import BookList from "@/components/BookList";
@@ -39,7 +37,7 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
-import Svg, { Circle } from "react-native-svg";
+
 
 type CacheEntry = { books: Book[]; totalPages: number; ts: number };
 const EXPLORE_CACHE = new Map<string, CacheEntry>();
@@ -48,22 +46,6 @@ const CACHE_TTL_MS = 30_000;
 const UPDATE_BANNER_BG = require("@/assets/images/upd.png");
 const UPDATE_BANNER_ICON = require("@/assets/images/adaptive-icon.png");
 
-type ProbeNow = {
-  which: "start" | "end";
-  page: number;
-  headSec: number;
-  tailSec: number;
-  lo: number;
-  hi: number;
-  mid: number;
-  decision?: "left" | "right" | "hit";
-};
-function hasProbe(p: DateSearchProgress): p is DateSearchProgress & {
-  bounds: NonNullable<DateSearchProgress["bounds"]>;
-  probe: NonNullable<DateSearchProgress["probe"]>;
-} {
-  return p.phase === "range:probe" && !!p.bounds && !!p.probe;
-}
 type ResultState = "idle" | "loading" | "no-results" | "timeout" | "error";
 
 export default function HomeScreen() {
@@ -84,8 +66,8 @@ export default function HomeScreen() {
     excludes,
     clearAll: clearAllTagFilters,
   } = useFilterTags() as any;
-  const { from: dateFrom, to: dateTo, clearRange, isHydrated } = useDateRange();
-  const dateFilterActive = !!dateFrom || !!dateTo;
+  const { uploaded, clearUploaded, isHydrated } = useDateRange();
+  const dateFilterActive = !!uploaded;
 
   const useFilters = solo !== "1";
   const activeIncludes = useFilters ? includes : [];
@@ -104,19 +86,11 @@ export default function HomeScreen() {
   const [resultState, setResultState] = useState<ResultState>("idle");
   const [errorMsg, setErr] = useState<string>("");
 
-  const [stage, setStage] = useState<DateSearchPhase>("idle");
-  const [probeNow, setProbeNow] = useState<ProbeNow | null>(null);
-  const [windowInfo, setWindowInfo] = useState<{
-    startIndex: number;
-    endIndex: number;
-    total: number;
-  } | null>(null);
   const [isPaginating, setPaginating] = useState(false);
   const [infiniteScroll, setInfiniteScroll] = useState(false);
   const scrollRef = useRef<FlatList<Book> | null>(null);
   const prevPageRef = useRef(currentPage);
 
-  const searching = dateFilterActive && stage !== "idle" && stage !== "done";
   const gridConfig = useGridConfig();
   const reqIdRef = useRef(0);
   const skipPageChangeRef = useRef(false);
@@ -154,154 +128,10 @@ export default function HomeScreen() {
         inc: activeIncludes,
         exc: activeExcludes,
         page: currentPage,
-        from: dateFrom
-          ? new Date(dateFrom as any).toISOString().slice(0, 10)
-          : null,
-        to: dateTo ? new Date(dateTo as any).toISOString().slice(0, 10) : null,
+        uploaded: uploaded ?? null,
       }),
-    [query, sort, incStr, excStr, currentPage, dateFrom, dateTo]
+    [query, sort, incStr, excStr, currentPage, uploaded]
   );
-
-  const fmt = (sec?: number) =>
-    sec ? new Date(sec * 1000).toLocaleDateString() : "—";
-
-  const probeSubtitle = useMemo(() => {
-    if (!probeNow) return "";
-    const dir =
-      probeNow.decision === "right"
-        ? t("explore.dateSearch.dirRight")
-        : probeNow.decision === "left"
-        ? t("explore.dateSearch.dirLeft")
-        : probeNow.decision === "hit"
-        ? t("explore.dateSearch.dirHit")
-        : "";
-    const head = fmt(probeNow.headSec);
-    const tail = fmt(probeNow.tailSec);
-    const whichLabel =
-      probeNow.which === "start"
-        ? t("explore.dateSearch.whichStart")
-        : t("explore.dateSearch.whichEnd");
-    return t("explore.dateSearch.probeSubtitle", {
-      which: whichLabel,
-      page: probeNow.page,
-      head,
-      tail,
-      dir,
-    });
-  }, [probeNow, t]);
-
-  const Ring = ({
-    progress,
-    size = 20,
-    stroke = 3,
-  }: {
-    progress: number;
-    size?: number;
-    stroke?: number;
-  }) => {
-    const r = (size - stroke) / 2;
-    const c = 2 * Math.PI * r;
-    return (
-      <Svg
-        width={size}
-        height={size}
-        viewBox={`0 0 ${size} ${size}`}
-        style={{ marginLeft: 8 }}
-      >
-        <Circle
-          cx={size / 2}
-          cy={size / 2}
-          r={r}
-          stroke={colors.accent}
-          strokeOpacity={0.25}
-          strokeWidth={stroke}
-          fill="none"
-        />
-        <Circle
-          cx={size / 2}
-          cy={size / 2}
-          r={r}
-          stroke={colors.accent}
-          strokeWidth={stroke}
-          strokeDasharray={`${c}`}
-          strokeDashoffset={c * (1 - progress)}
-          strokeLinecap="round"
-          fill="none"
-          rotation={-90}
-          origin={`${size / 2},${size / 2}`}
-        />
-      </Svg>
-    );
-  };
-
-  const DateSearchPanel = () => {
-    const pct =
-      stage === "meta"
-        ? 0.1
-        : stage === "range:start"
-        ? 0.3
-        : stage === "range:end"
-        ? 0.6
-        : stage === "fetch"
-        ? 0.85
-        : stage === "done"
-        ? 1
-        : 0.05;
-
-    const titleKey =
-      stage === "meta"
-        ? t("explore.dateSearch.title.meta")
-        : stage === "range:start"
-        ? t("explore.dateSearch.title.rangeStart")
-        : stage === "range:end"
-        ? t("explore.dateSearch.title.rangeEnd")
-        : stage === "fetch"
-        ? t("explore.dateSearch.title.fetch")
-        : stage === "done"
-        ? t("explore.dateSearch.title.done")
-        : t("explore.dateSearch.title.loading");
-
-    const title = t(titleKey);
-
-    return (
-      <View
-        style={{
-          backgroundColor: colors.accent + "10",
-          borderBottomColor: colors.page,
-        }}
-      >
-        <View
-          style={{
-            paddingHorizontal: 12,
-            paddingVertical: 10,
-            flexDirection: "row",
-            alignItems: "center",
-          }}
-        >
-          <View style={{ flex: 1 }}>
-            <Text style={{ color: colors.txt, fontWeight: "700" }}>
-              {title}
-            </Text>
-            {!!probeSubtitle && (
-              <Text style={{ color: colors.txt, opacity: 0.8, marginTop: 2 }}>
-                {probeSubtitle}
-              </Text>
-            )}
-            {windowInfo && stage === "fetch" && (
-              <Text style={{ color: colors.txt, opacity: 0.8, marginTop: 2 }}>
-                {t("explore.dateSearch.windowInfo", {
-                  start: windowInfo.startIndex,
-                  end: windowInfo.endIndex,
-                  total: windowInfo.total,
-                })}
-              </Text>
-            )}
-          </View>
-          <Ring progress={pct} />
-        </View>
-      </View>
-    );
-  };
 
   useEffect(() => {
     booksLengthRef.current = books.length;
@@ -313,7 +143,7 @@ export default function HomeScreen() {
       const myReqId = ++reqIdRef.current;
       const isFirstLoad = booksLengthRef.current === 0;
 
-      if (!dateFilterActive && !force && !append) {
+      if (!force && !append) {
         const cached = EXPLORE_CACHE.get(keyForCache);
         const freshEnough =
           cached &&
@@ -333,52 +163,26 @@ export default function HomeScreen() {
       }
 
       setErr("");
-      if (dateFilterActive) {
-        setStage("meta");
-        setProbeNow(null);
-        setWindowInfo(null);
-      } else if (isFirstLoad && !swr) {
+      if (isFirstLoad && !swr) {
         setResultState("loading");
       }
 
       let timeoutHit = false;
       const timer = setTimeout(() => {
         timeoutHit = true;
-        if (!dateFilterActive && (isFirstLoad || swr))
-          setResultState("timeout");
+        if (isFirstLoad || swr) setResultState("timeout");
       }, 15000);
 
       try {
-        const res = await (searchBooks as any)({
+        const res = await searchBooks({
           query: q || "",
           sort,
           page,
           perPage: 45,
           includeTags: activeIncludes,
           excludeTags: activeExcludes,
-          dateFrom: dateFrom ?? undefined,
-          dateTo: dateTo ?? undefined,
+          uploaded: uploaded ?? undefined,
           sessionKey: `explore::${q || "ALL"}::${incStr}::${excStr}`,
-          onProgress: dateFilterActive
-            ? (pr: DateSearchProgress) => {
-                if (hasProbe(pr)) {
-                  const { bounds: b, probe: pv } = pr;
-                  setProbeNow({
-                    which: pr.which || "start",
-                    page: pv.page,
-                    headSec: pv.headSec,
-                    tailSec: pv.tailSec,
-                    lo: b.lo,
-                    hi: b.hi,
-                    mid: b.mid,
-                    decision: b.decision,
-                  });
-                  return;
-                }
-                if (pr.phase === "fetch" && pr.window) setWindowInfo(pr.window);
-                setStage(pr.phase);
-              }
-            : undefined,
           force: force || (page === 1 && sort === "date"),
         });
 
@@ -389,8 +193,7 @@ export default function HomeScreen() {
           setBooks((prev) => {
             const existingIds = new Set(prev.map((b: Book) => b.id));
             const newBooks = res.books.filter((b: Book) => !existingIds.has(b.id));
-            const combined = [...prev, ...newBooks];
-            return combined;
+            return [...prev, ...newBooks];
           });
         } else {
           setBooks(res.books);
@@ -403,21 +206,12 @@ export default function HomeScreen() {
           }
         }
         setTotal(res.totalPages);
-
-        if (!dateFilterActive) {
-          setResultState(res.books.length ? "idle" : "no-results");
-        } else {
-          setTimeout(() => {
-            setStage("done");
-            setProbeNow(null);
-          }, 200);
-        }
+        setResultState(res.books.length ? "idle" : "no-results");
       } catch (e: any) {
         clearTimeout(timer);
         if (myReqId !== reqIdRef.current) return;
         setErr(e?.message || String(e));
-        if (dateFilterActive) setStage("done");
-        else setResultState(timeoutHit ? "timeout" : "error");
+        setResultState(timeoutHit ? "timeout" : "error");
       } finally {
         setPaginating(false);
       }
@@ -427,9 +221,7 @@ export default function HomeScreen() {
       sort,
       incStr,
       excStr,
-      dateFrom,
-      dateTo,
-      dateFilterActive,
+      uploaded,
       activeIncludes,
       activeExcludes,
       infiniteScroll,
@@ -442,15 +234,15 @@ export default function HomeScreen() {
       skipPageChangeRef.current = false;
       return;
     }
-    const wantFresh = !dateFilterActive && currentPage === 1 && sort === "date";
+    const wantFresh = currentPage === 1 && sort === "date";
     fetchPage(currentPage, cacheKey, wantFresh, wantFresh, false);
-  }, [isHydrated, cacheKey, currentPage, dateFilterActive, sort, fetchPage]);
+  }, [isHydrated, cacheKey, currentPage, sort, fetchPage]);
 
   useEffect(() => setQuery(urlQ ?? ""), [urlQ]);
   useEffect(() => {
     setPage(1);
     scrollToTop(scrollRef);
-  }, [query, sort, incStr, excStr, dateFrom, dateTo]);
+  }, [query, sort, incStr, excStr, uploaded]);
 
   useEffect(() => {
     if (prevPageRef.current === currentPage) return;
@@ -526,9 +318,7 @@ export default function HomeScreen() {
     [cacheKey]
   );
 
-  const showNoResults =
-    (!dateFilterActive && resultState === "no-results") ||
-    (dateFilterActive && !searching && books.length === 0);
+  const showNoResults = resultState === "no-results";
 
   const reason = dateFilterActive
     ? "dates"
@@ -566,7 +356,7 @@ export default function HomeScreen() {
       return [
         {
           label: t("explore.noResults.actions.resetDates"),
-          onPress: clearRange,
+          onPress: clearUploaded,
         },
         ...base,
       ];
@@ -592,11 +382,10 @@ export default function HomeScreen() {
       },
       ...base,
     ];
-  }, [router, query, setSort, clearRange, reason, clearAllTagFilters, t]);
+  }, [router, query, setSort, clearUploaded, reason, clearAllTagFilters, t]);
 
   const showListSkeleton =
-    (!dateFilterActive && resultState === "loading" && books.length === 0) ||
-    (dateFilterActive && books.length === 0 && searching);
+    resultState === "loading" && books.length === 0;
 
   return (
     <View style={styles.container}>
@@ -611,8 +400,6 @@ export default function HomeScreen() {
           }
         }}
       />
-
-      {dateFilterActive && searching && <DateSearchPanel />}
 
       {showNoResults && (
         <NoResultsPanel
@@ -629,7 +416,7 @@ export default function HomeScreen() {
         />
       )}
 
-      {(!dateFilterActive || !searching) && (
+      {!showNoResults && (
         <>
           <BookList
             data={books}
@@ -651,11 +438,6 @@ export default function HomeScreen() {
               infiniteScroll && currentPage < totalPages && !isPaginating
                 ? () => {
                     setPaginating(true);
-                    if (dateFilterActive) {
-                      setStage("fetch");
-                      setProbeNow(null);
-                      setWindowInfo(null);
-                    }
                     const nextPage = currentPage + 1;
                     const nextCacheKey = JSON.stringify({
                       q: query.trim(),
@@ -663,10 +445,7 @@ export default function HomeScreen() {
                       inc: activeIncludes,
                       exc: activeExcludes,
                       page: nextPage,
-                      from: dateFrom
-                        ? new Date(dateFrom as any).toISOString().slice(0, 10)
-                        : null,
-                      to: dateTo ? new Date(dateTo as any).toISOString().slice(0, 10) : null,
+                      uploaded: uploaded ?? null,
                     });
                     skipPageChangeRef.current = true;
                     fetchPage(nextPage, nextCacheKey, false, false, true);
@@ -681,11 +460,6 @@ export default function HomeScreen() {
               totalPages={totalPages}
               onChange={(p) => {
                 setPaginating(true);
-                if (dateFilterActive) {
-                  setStage("fetch");
-                  setProbeNow(null);
-                  setWindowInfo(null);
-                }
                 skipPageChangeRef.current = true;
                 const paginationCacheKey = JSON.stringify({
                   q: query.trim(),
@@ -693,10 +467,7 @@ export default function HomeScreen() {
                   inc: activeIncludes,
                   exc: activeExcludes,
                   page: p,
-                  from: dateFrom
-                    ? new Date(dateFrom as any).toISOString().slice(0, 10)
-                    : null,
-                  to: dateTo ? new Date(dateTo as any).toISOString().slice(0, 10) : null,
+                  uploaded: uploaded ?? null,
                 });
                 fetchPage(p, paginationCacheKey, false, false, false);
                 setPage(p);
