@@ -1,21 +1,13 @@
 import React, { useMemo, useState } from "react";
-import { Image, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { format } from "date-fns";
 
 import { Book } from "@/api/nhentai";
-import SmartImageWithRetry from "@/components/SmartImageWithRetry";
 import { buildImageFallbacks } from "@/components/buildImageFallbacks";
-import NhModal from "@/components/nhModal";
+import SmartImageWithRetry from "@/components/SmartImageWithRetry";
+import { useI18n } from "@/lib/i18n/I18nContext";
 import { useTheme } from "@/lib/ThemeContext";
 import { makeCardStyles } from "../BookCard.styles";
-
-const CN_FLAG = require("@/assets/images/flags/CN.png");
-const GB_FLAG = require("@/assets/images/flags/GB.png");
-const JP_FLAG = require("@/assets/images/flags/JP.png");
-const FLAG_MAP: Record<string, any> = {
-  chinese: CN_FLAG,
-  english: GB_FLAG,
-  japanese: JP_FLAG,
-};
 
 const LANG_TAG_JP = 6346;
 const LANG_TAG_CN = 29963;
@@ -45,7 +37,6 @@ export interface BookCardClassicProps {
   onPress?: (id: number) => void;
   background?: string;
   score?: number;
-  onTagPress?: (name: string) => void;
 }
 
 export default function BookCardClassic({
@@ -55,16 +46,16 @@ export default function BookCardClassic({
   onPress,
   background,
   score,
-  onTagPress,
 }: BookCardClassicProps) {
   const { colors } = useTheme();
+  const { t, resolvedDateFns } = useI18n();
   const styles = useMemo(
     () => makeCardStyles(colors, cardWidth, contentScale),
     [colors, cardWidth, contentScale]
   );
 
-  const [menuOpen, setMenuOpen] = useState(false);
   const [hovered, setHovered] = useState(false);
+  const [tagsExpanded, setTagsExpanded] = useState(false);
 
   const fullTitle = book.title?.pretty ?? "";
 
@@ -77,56 +68,171 @@ export default function BookCardClassic({
     }
     return inferLanguageKeyFromBook(book);
   })();
-  const flagSrc = langName ? FLAG_MAP[langName] : undefined;
 
   const sources = buildImageFallbacks(book.cover);
 
   const handlePressCard = () => onPress?.(book.id);
-  const openMenu = () => setMenuOpen(true);
-  const closeMenu = () => setMenuOpen(false);
 
   const year = (() => {
     const d = book.uploaded ? new Date(book.uploaded) : null;
     const y = d && Number.isFinite(d.getTime()) ? d.getFullYear() : undefined;
     return y && y > 1970 ? y : undefined;
   })();
+  const displayYear = year ?? new Date().getFullYear();
+  const uploadedDate = useMemo(() => {
+    if (!book.uploaded) return null;
+    const d = new Date(book.uploaded);
+    return Number.isFinite(d.getTime()) ? d : null;
+  }, [book.uploaded]);
+  const displayDate = useMemo(() => {
+    if (!uploadedDate) return String(displayYear);
+    try {
+      // e.g. "31 Mar 2026" / localized month for ru/ja/zh
+      return format(uploadedDate, "d MMM yyyy", { locale: resolvedDateFns as any });
+    } catch {
+      return String(displayYear);
+    }
+  }, [uploadedDate, displayYear, resolvedDateFns]);
+  const isNew = useMemo(() => {
+    if (!uploadedDate) return false;
+    const diff = Date.now() - uploadedDate.getTime();
+    return diff >= 0 && diff <= 2 * 60 * 60 * 1000;
+  }, [uploadedDate]);
   const pages = book.pagesCount || book.pages?.length || undefined;
   const scoreClamped =
     typeof score === "number" && Number.isFinite(score)
       ? Math.max(0, Math.min(5, score))
       : undefined;
 
-  const langShort = (langName ? langName.slice(0, 2) : "").toUpperCase();
+  const langShort = (() => {
+    const s = (langName ? langName.slice(0, 2) : "").toUpperCase();
+    // user requested JP instead of JA
+    return s === "JA" ? "JP" : s;
+  })();
 
-  // Collect all semantic tag-like names: tags + parodies + characters + artists + groups + categories
-  // (languages are shown as flag badge — skip them here)
-  const namedTags = useMemo(() => {
-    const pick = (arr?: { name?: string }[]) =>
-      arr?.map((x) => x.name).filter(Boolean) as string[] ?? [];
-    const all = [
-      ...pick(book.tags),
-      ...pick(book.parodies),
-      ...pick(book.characters),
-      ...pick(book.artists),
-      ...pick(book.groups),
-      ...pick(book.categories),
+  type ChipType = "artist" | "parody" | "character" | "category" | "tag";
+  type Chip = { type: ChipType; name: string };
+
+  const chips = useMemo(() => {
+    const pick = (arr: any[] | undefined, type: ChipType): Chip[] =>
+      (arr ?? [])
+        .map((x) => String(x?.name ?? "").trim())
+        .filter(Boolean)
+        .map((name) => ({ type, name }));
+
+    // tags: only plain tag type; exclude language/group/etc
+    const onlyPlainTags: any[] = (book.tags ?? []).filter((x: any) => (x?.type ?? "tag") === "tag");
+
+    const ordered: Chip[] = [
+      ...pick(book.artists as any, "artist"),
+      ...pick(book.parodies as any, "parody"),
+      ...pick(book.characters as any, "character"),
+      ...pick(book.categories as any, "category"),
+      ...pick(onlyPlainTags as any, "tag"),
     ];
-    // deduplicate
-    return [...new Set(all)];
-  }, [book.tags, book.parodies, book.characters, book.artists, book.groups, book.categories]);
 
-  // Full list for modal: namedTags first, then #id fallback if everything is empty
-  const tagNames = useMemo(() => {
-    if (namedTags.length) return namedTags;
-    const ids = (book.tagIds ?? []).filter((n) => Number.isFinite(n) && n > 0);
-    return ids.map((id) => `#${id}`);
-  }, [namedTags, book.tagIds]);
+    const seen = new Set<string>();
+    const out: Chip[] = [];
+    for (const c of ordered) {
+      const k = `${c.type}::${c.name}`.toLowerCase();
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push(c);
+    }
+    return out;
+  }, [book.artists, book.parodies, book.characters, book.categories, book.tags]);
 
-  const visibleTags = useMemo(() => namedTags.slice(0, 3), [namedTags]);
-  const moreTags = Math.max(0, namedTags.length - visibleTags.length);
+  // ── Collapsed chips: instant predictive packing (no measurement, no flicker) ──
+  const collapsedMaxRows = 2;
+  const chipGap = 5;
+  const chipPadX = 7 * 2;
+  const chipBorder = 1;
+  const approxLatinCharW = 5.3; // fontSize:10 fontWeight:600 — slightly conservative to prevent 3-row overflow
+  const approxCjkCharW = 9.2;
+  // tagText has maxWidth:120 → chip pixel cap = 120 + padding + border = 135
+  const chipMaxW = 120 + chipPadX + chipBorder;
+
+  const isCjk = (s: string) => /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af]/.test(s);
+  const estTextW = (s: string) => {
+    const per = isCjk(s) ? approxCjkCharW : approxLatinCharW;
+    return Math.ceil(s.length * per);
+  };
+  // Chip width is capped by tagText maxWidth:120
+  const estChipW = (name: string) => Math.min(chipMaxW, chipPadX + chipBorder + estTextW(name));
+  // "+N" width scales with digit count so "+1" ≠ "+17"
+  const estPlusChipW = (n: number) =>
+    chipPadX + chipBorder + Math.ceil((String(n).length + 1) * approxLatinCharW);
+
+  // Subtract a small safety margin so estimation errors don't push us into a 3rd row
+  const availableW = Math.max(120, cardWidth - 8 - 6);
+
+  /**
+   * Pack the first `n` chips into rows.
+   * The first chip on any row is always placed (even if wider than availableW).
+   * Returns { fits, lastRow, lastRowX }.
+   */
+  const simulatePack = (n: number): { fits: boolean; lastRow: number; lastRowX: number } => {
+    let row = 1;
+    let x = 0;
+    for (let i = 0; i < n; i++) {
+      const w = estChipW(chips[i].name);
+      if (x === 0) {
+        x = w;
+      } else {
+        const next = x + chipGap + w;
+        if (next > availableW) {
+          row += 1;
+          if (row > collapsedMaxRows) return { fits: false, lastRow: row, lastRowX: x };
+          x = w;
+        } else {
+          x = next;
+        }
+      }
+    }
+    return { fits: true, lastRow: row, lastRowX: x };
+  };
+
+  const collapsedCount = useMemo(() => {
+    if (tagsExpanded) return chips.length;
+    if (chips.length === 0) return 0;
+
+    // Find max chips that fit in collapsedMaxRows rows
+    let count = 0;
+    for (let i = 1; i <= chips.length; i++) {
+      if (simulatePack(i).fits) count = i;
+      else break;
+    }
+
+    // If chips are hidden, ensure "+N" pill also fits
+    if (count < chips.length) {
+      while (count > 0) {
+        const { lastRow, lastRowX } = simulatePack(count);
+        const hidden = chips.length - count;
+        const plusW = estPlusChipW(hidden);
+        // Option 1: +N fits on the same row as the last chip
+        if (lastRowX + chipGap + plusW <= availableW) break;
+        // Option 2: +N wraps to the next row and that row is still within collapsedMaxRows
+        if (lastRow < collapsedMaxRows) break;
+        count--;
+      }
+      // Always show at least 1 chip — never just a bare "+N"
+      if (count === 0) count = 1;
+    }
+
+    return count;
+  }, [tagsExpanded, chips, availableW]);
+
+  const moreTags = Math.max(0, chips.length - collapsedCount);
+  const visibleChips = useMemo(() => {
+    if (tagsExpanded) return chips;
+    // collapsedCount already accounts for the +N chip's space — use it directly
+    return chips.slice(0, collapsedCount);
+  }, [chips, tagsExpanded, collapsedCount]);
 
   const hasMetaRow =
     !!langShort || (typeof pages === "number" && pages > 0) || !!year || scoreClamped != null;
+
+  const collectingInfoText = t("bookcard.collectingInfo");
 
   return (
     <>
@@ -134,24 +240,14 @@ export default function BookCardClassic({
         style={({ pressed }) => [
           localStyles.card,
           background ? { backgroundColor: background } : undefined,
-          hovered && Platform.OS === "web" ? localStyles.cardHover : null,
+          hovered && Platform.OS === "web" ? localStyles.cardHoverDim : null,
           pressed ? localStyles.cardPressed : null,
+          Platform.OS === "web" ? (localStyles.webTransition as any) : null,
           { width: cardWidth },
         ]}
         onPress={handlePressCard}
-        onLongPress={openMenu}
-        delayLongPress={350}
         onHoverIn={Platform.OS === "web" ? () => setHovered(true) : undefined}
         onHoverOut={Platform.OS === "web" ? () => setHovered(false) : undefined}
-        {...(Platform.OS === "web"
-          ? ({
-              onContextMenu: (e: any) => {
-                e?.preventDefault?.();
-                e?.stopPropagation?.();
-                openMenu();
-              },
-            } as any)
-          : {})}
       >
         {/* ── Cover ── */}
         <View style={[styles.imageWrap, localStyles.imageWrap]}>
@@ -161,9 +257,10 @@ export default function BookCardClassic({
             maxRetries={3}
             retryDelay={1000}
           />
-          {flagSrc && (
-            <View style={styles.langBadge} pointerEvents="none">
-              <Image source={flagSrc} style={styles.langImg} resizeMode="cover" />
+          {/* flag intentionally removed (requested) */}
+          {isNew && (
+            <View pointerEvents="none" style={localStyles.newBadge}>
+              <Text style={localStyles.newBadgeText}>{t("book.new")}</Text>
             </View>
           )}
         </View>
@@ -185,10 +282,8 @@ export default function BookCardClassic({
               {typeof pages === "number" && pages > 0 && (
                 <Text style={localStyles.metaText}>{pages} стр.</Text>
               )}
-              {(!!langShort || (typeof pages === "number" && pages > 0)) && !!year && (
-                <View style={localStyles.dot} />
-              )}
-              {!!year && <Text style={localStyles.metaText}>{year}</Text>}
+              {(!!langShort || (typeof pages === "number" && pages > 0)) && <View style={localStyles.dot} />}
+              <Text style={localStyles.metaText}>{displayDate}</Text>
               {scoreClamped != null && (
                 <>
                   <View style={localStyles.dot} />
@@ -200,69 +295,89 @@ export default function BookCardClassic({
             </View>
           )}
 
-          {(visibleTags.length > 0 || moreTags > 0) && (
+          {(visibleChips.length > 0 || (!tagsExpanded && moreTags > 0)) ? (
+            <View
+              style={[
+                localStyles.tagsContainer,
+                !tagsExpanded ? localStyles.tagsContainerCollapsed : null,
+              ]}
+            >
+              <View style={localStyles.tagsRow}>
+                {visibleChips.map((c) => {
+                  const chipStyle =
+                    c.type === "artist"
+                      ? localStyles.chipArtist
+                      : c.type === "parody"
+                        ? localStyles.chipParody
+                        : c.type === "character"
+                          ? localStyles.chipCharacter
+                          : c.type === "category"
+                            ? localStyles.chipCategory
+                            : localStyles.chipTag;
+                  const textStyle =
+                    c.type === "artist"
+                      ? localStyles.chipTextArtist
+                      : c.type === "parody"
+                        ? localStyles.chipTextParody
+                        : c.type === "character"
+                          ? localStyles.chipTextCharacter
+                          : c.type === "category"
+                            ? localStyles.chipTextCategory
+                            : localStyles.chipTextTag;
+
+                  return (
+                    <View key={`${c.type}:${c.name}`} style={[localStyles.tagChip, chipStyle]}>
+                      <Text style={[localStyles.tagText, textStyle]} numberOfLines={1}>
+                        {c.name}
+                      </Text>
+                    </View>
+                  );
+                })}
+
+                {tagsExpanded && chips.length > 0 && (
+                  <Pressable
+                    onPress={() => setTagsExpanded(false)}
+                    style={({ pressed }) => [
+                      localStyles.tagChip,
+                      localStyles.tagChipCollapse,
+                      pressed ? { opacity: 0.85 } : null,
+                    ]}
+                  >
+                    <Text style={localStyles.tagTextMore}>▲</Text>
+                  </Pressable>
+                )}
+
+                {!tagsExpanded && moreTags > 0 && (
+                  <Pressable
+                    onPress={() => setTagsExpanded(true)}
+                    style={({ pressed }) => [
+                      localStyles.tagChip,
+                      localStyles.tagChipMore,
+                      pressed ? { opacity: 0.9 } : null,
+                    ]}
+                  >
+                    <Text style={localStyles.tagTextMore}>+{moreTags}</Text>
+                  </Pressable>
+                )}
+              </View>
+            </View>
+          ) : (
             <View style={localStyles.tagsRow}>
-              {visibleTags.map((t) => (
-                <View key={t} style={localStyles.tagChip}>
-                  <Text style={localStyles.tagText} numberOfLines={1}>
-                    {t}
-                  </Text>
+              <View style={[localStyles.tagChip, localStyles.tagChipLoading]}>
+                <View style={localStyles.loadingRow}>
+                  <Text style={localStyles.tagTextMore}>{collectingInfoText}</Text>
+                  <ActivityIndicator
+                    size="small"
+                    color="rgba(255,255,255,0.55)"
+                    style={{ marginLeft: 6, transform: [{ scale: 0.58 }], marginTop: 3 }}
+                  />
                 </View>
-              ))}
-              {moreTags > 0 && (
-                <View style={[localStyles.tagChip, localStyles.tagChipMore]}>
-                  <Text style={localStyles.tagTextMore}>+{moreTags}</Text>
-                </View>
-              )}
+              </View>
             </View>
           )}
         </View>
       </Pressable>
 
-      {/* ── Context menu: all tags ── */}
-      <NhModal
-        visible={menuOpen}
-        onClose={closeMenu}
-        title={fullTitle || `#${book.id}`}
-        sheetStyle={{ backgroundColor: colors.page, borderColor: colors.page }}
-        sizing="wrap"
-      >
-        <ScrollView
-          style={{ maxHeight: 420 }}
-          contentContainerStyle={{ padding: 12, paddingBottom: 18 }}
-          showsVerticalScrollIndicator={false}
-        >
-          <Text
-            style={{ color: colors.metaText, fontWeight: "800", fontSize: 12, marginBottom: 10 }}
-          >
-            Теги
-          </Text>
-          <View style={localStyles.tagsWrap}>
-            {tagNames.map((t) => (
-              <Pressable
-                key={t}
-                onPress={() => {
-                  closeMenu();
-                  onTagPress?.(t);
-                }}
-                style={({ pressed }) => [
-                  localStyles.tagPill,
-                  { backgroundColor: colors.tagBg, borderColor: colors.page },
-                  pressed ? { opacity: 0.85 } : null,
-                ]}
-                android_ripple={{ color: colors.accent + "22", borderless: false }}
-              >
-                <Text
-                  style={{ color: colors.tagText, fontWeight: "700", fontSize: 12 }}
-                  numberOfLines={1}
-                >
-                  {t}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-        </ScrollView>
-      </NhModal>
     </>
   );
 }
@@ -272,17 +387,36 @@ const localStyles = StyleSheet.create({
     backgroundColor: "transparent",
     overflow: "visible",
   },
-  cardHover: {
-    transform: [{ translateY: -2 }],
+  webTransition: {
+    transitionProperty: "opacity",
+    transitionDuration: "140ms",
+    transitionTimingFunction: "ease-out",
+  } as any,
+  cardHoverDim: {
+    opacity: 0.88,
   },
   cardPressed: {
-    transform: [{ scale: 0.985 }],
     opacity: 0.92,
   },
   imageWrap: {
     borderRadius: 12,
     overflow: "hidden",
     backgroundColor: "#111",
+  },
+  newBadge: {
+    position: "absolute",
+    left: 8,
+    top: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: "#FF3B30",
+  },
+  newBadgeText: {
+    color: "#FFFFFF",
+    fontWeight: "900",
+    fontSize: 11,
+    letterSpacing: 0.3,
   },
   infoBlock: {
     paddingTop: 8,
@@ -322,10 +456,18 @@ const localStyles = StyleSheet.create({
     flexWrap: "wrap",
     gap: 5,
   },
+  tagsContainer: {
+    position: "relative",
+  },
+  tagsContainerCollapsed: {},
+  loadingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
   tagChip: {
     borderRadius: 6,
     paddingHorizontal: 7,
-    paddingVertical: 3,
+    paddingVertical: 2,
     backgroundColor: "rgba(255,255,255,0.07)",
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: "rgba(255,255,255,0.16)",
@@ -335,27 +477,50 @@ const localStyles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.05)",
     borderColor: "rgba(255,255,255,0.22)",
   },
+  tagChipCollapse: {
+    backgroundColor: "rgba(255,255,255,0.05)",
+    borderColor: "rgba(255,255,255,0.22)",
+  },
+  tagChipLoading: {
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderColor: "rgba(255,255,255,0.12)",
+  },
   tagText: {
     color: "rgba(255,255,255,0.72)",
     fontSize: 10,
     fontWeight: "600",
+    lineHeight: 12,
     maxWidth: 120,
   },
   tagTextMore: {
     color: "rgba(255,255,255,0.55)",
     fontSize: 10,
     fontWeight: "700",
+    lineHeight: 12,
   },
-  tagsWrap: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
+  chipArtist: {
+    backgroundColor: "rgba(182, 99, 255, 0.14)",
+    borderColor: "rgba(182, 99, 255, 0.32)",
   },
-  tagPill: {
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    borderWidth: StyleSheet.hairlineWidth,
-    maxWidth: "100%",
+  chipTextArtist: { color: "rgba(222, 188, 255, 0.92)" },
+  chipParody: {
+    backgroundColor: "rgba(255, 77, 145, 0.14)",
+    borderColor: "rgba(255, 77, 145, 0.32)",
   },
+  chipTextParody: { color: "rgba(255, 199, 222, 0.92)" },
+  chipCharacter: {
+    backgroundColor: "rgba(54, 210, 255, 0.14)",
+    borderColor: "rgba(54, 210, 255, 0.30)",
+  },
+  chipTextCharacter: { color: "rgba(186, 244, 255, 0.92)" },
+  chipCategory: {
+    backgroundColor: "rgba(255, 209, 102, 0.14)",
+    borderColor: "rgba(255, 209, 102, 0.30)",
+  },
+  chipTextCategory: { color: "rgba(255, 236, 186, 0.92)" },
+  chipTag: {
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderColor: "rgba(255,255,255,0.18)",
+  },
+  chipTextTag: { color: "rgba(255,255,255,0.78)" },
 });

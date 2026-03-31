@@ -51,6 +51,9 @@
       "attempts": "尝试次数：{n}"
     }
   },
+  "bookcard": {
+    "collectingInfo": "信息收集中"
+  },
   "comments": {
     "title": "评论",
     "menu": {

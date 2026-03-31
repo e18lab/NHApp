@@ -27,6 +27,7 @@ import React, {
   useState,
 } from "react";
 import {
+  AppState,
   FlatList,
   Image,
   ImageBackground,
@@ -282,6 +283,50 @@ export default function HomeScreen() {
     await fetchPage(currentPage, cacheKey, true, false);
     checkUpdate();
   }, [isHydrated, currentPage, cacheKey, fetchPage, checkUpdate]);
+
+  useFocusEffect(
+    useCallback(() => {
+      // Auto-refresh while this screen is focused and the app is active.
+      // Should work on phone + Electron + web.
+      if (!isHydrated) return;
+      if (isPaginating) return;
+
+      let cancelled = false;
+      let inFlight = false;
+      let appState: "active" | "background" | "inactive" =
+        (AppState.currentState as any) ?? "active";
+
+      const intervalMs = 75_000;
+
+      const tick = async () => {
+        if (cancelled || inFlight) return;
+        if (appState !== "active") return;
+        // If user is not on the first page or not sorted by date, avoid background polling.
+        if (currentPage !== 1 || sort !== "date") return;
+
+        inFlight = true;
+        try {
+          await onRefresh();
+        } finally {
+          inFlight = false;
+        }
+      };
+
+      const sub = AppState.addEventListener("change", (next) => {
+        appState = next as any;
+        if (next === "active") void tick();
+      });
+
+      const t0 = setTimeout(() => void tick(), 5_000);
+      const id = setInterval(() => void tick(), intervalMs);
+      return () => {
+        cancelled = true;
+        clearTimeout(t0);
+        clearInterval(id);
+        sub.remove();
+      };
+    }, [isHydrated, isPaginating, currentPage, sort, onRefresh])
+  );
 
   useEffect(() => {
     if (Platform.OS !== "web") return;

@@ -51,6 +51,9 @@
       "attempts": "Attempts: {n}"
     }
   },
+  "bookcard": {
+    "collectingInfo": "Collecting info"
+  },
   "comments": {
     "title": "Comments",
     "menu": {

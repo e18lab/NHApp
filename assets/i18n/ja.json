@@ -51,6 +51,9 @@
       "attempts": "試行回数: {n}"
     }
   },
+  "bookcard": {
+    "collectingInfo": "情報を取得中"
+  },
   "comments": {
     "title": "コメント",
     "menu": {

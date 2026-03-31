@@ -51,6 +51,9 @@
       "attempts": "Попыток: {n}"
     }
   },
+  "bookcard": {
+    "collectingInfo": "Собирается информация"
+  },
   "comments": {
     "title": "Комментарии",
     "menu": {
