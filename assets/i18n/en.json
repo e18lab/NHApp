@@ -681,6 +681,25 @@
     "emptySubtitle": {
       "default": "Try changing the filters or refreshing the list.",
       "noFav": "Like a few books and I'll find similar ones."
+    },
+    "howItWorks": "How it works",
+    "loading": "Building recommendations…",
+    "modal": {
+      "title": "How recommendations work",
+      "dataSection": "Your data used",
+      "topPrefs": "Top detected preferences",
+      "queriesSection": "Queries executed",
+      "algorithm": "Scoring algorithm",
+      "algorithmDesc": "Each book is scored by matching your preference signals. Tags, artists, and parodies you've interacted with score highest. Books already in your favorites or history are excluded. The preferred language gets a 10% bonus.",
+      "refreshNote": "Recommendations update only on pull-to-refresh or when you re-open the app.",
+      "favs": "Local favorites",
+      "onlineFavs": "Online favorites",
+      "readHist": "Read history",
+      "tagFavs": "Favorite tags",
+      "searchHist": "Search history",
+      "tags": "Tags",
+      "artists": "Artists",
+      "parodies": "Parodies"
     }
   },
   "sync": {

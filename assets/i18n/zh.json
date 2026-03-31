@@ -672,6 +672,25 @@
     "emptySubtitle": {
       "default": "试着修改筛选条件或刷新列表。",
       "noFav": "先给几本书点个赞，我会为你推荐相似的作品。"
+    },
+    "howItWorks": "工作原理",
+    "loading": "正在生成推荐…",
+    "modal": {
+      "title": "推荐系统工作原理",
+      "dataSection": "使用的数据",
+      "topPrefs": "检测到的偏好",
+      "queriesSection": "执行的查询",
+      "algorithm": "评分算法",
+      "algorithmDesc": "每本书根据与您的偏好信号的匹配程度进行评分。您互动过的标签、艺术家和同人原作权重最高。已在收藏或历史记录中的书籍将被排除。首选语言获得10%加成。",
+      "refreshNote": "推荐仅在下拉刷新或重新打开应用时更新。",
+      "favs": "本地收藏",
+      "onlineFavs": "在线收藏",
+      "readHist": "阅读历史",
+      "tagFavs": "收藏标签",
+      "searchHist": "搜索历史",
+      "tags": "标签",
+      "artists": "艺术家",
+      "parodies": "同人原作"
     }
   },
   "sync": {

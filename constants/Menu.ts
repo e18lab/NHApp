@@ -20,7 +20,6 @@ export const LIBRARY_MENU: MenuItem[] = [
     labelKey: "menu.recommendations",
     icon: "star",
     route: "/recommendations",
-    locked: true,
   },
   { labelKey: "menu.settings", icon: "settings", route: "/settings" },
 ];
