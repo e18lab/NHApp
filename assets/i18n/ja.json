@@ -51,6 +51,13 @@
       "attempts": "試行回数: {n}"
     }
   },
+  "toast": {
+    "errorTitle": "エラー",
+    "httpErrorTitle": "HTTP {code}",
+    "httpErrorGeneric": "HTTP {code}",
+    "genericFailure": "操作を完了できませんでした。",
+    "avatarUploadNotImplemented": "サーバー側でアバターのアップロードがまだ実装されていません。"
+  },
   "bookcard": {
     "collectingInfo": "情報を取得中"
   },
@@ -102,6 +109,7 @@
     "hide": "非表示にする",
     "clearSelection": "選択を解除",
     "retry": "再試行",
+    "loading": "読み込み中…",
     "apply": "適用"
   },
   "explore": {

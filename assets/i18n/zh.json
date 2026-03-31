@@ -51,6 +51,13 @@
       "attempts": "尝试次数：{n}"
     }
   },
+  "toast": {
+    "errorTitle": "错误",
+    "httpErrorTitle": "HTTP {code}",
+    "httpErrorGeneric": "HTTP {code}",
+    "genericFailure": "无法完成该操作。",
+    "avatarUploadNotImplemented": "服务器端尚未实现头像上传功能。"
+  },
   "bookcard": {
     "collectingInfo": "信息收集中"
   },
@@ -102,6 +109,7 @@
     "hide": "隐藏",
     "clearSelection": "清除选择",
     "retry": "重试",
+    "loading": "加载中…",
     "apply": "应用"
   },
   "explore": {

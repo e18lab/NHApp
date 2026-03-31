@@ -30,6 +30,7 @@ import { useOnlineMe } from "@/hooks/useOnlineMe";
 import { useTheme } from "@/lib/ThemeContext";
 import { useI18n } from "@/lib/i18n/I18nContext";
 import { getDeviceId } from "@/utils/deviceId";
+import { useTopBarAction } from "@/context/TopBarActionContext";
 
 const BAR_HEIGHT = 52;
 const BTN_SIDE = 40;
@@ -74,6 +75,7 @@ export function SearchBar() {
   const { sort, setSort } = useSort();
   const router = useRouter();
   const pathname = usePathname();
+  const { action } = useTopBarAction();
   const {
     uploaded,
     customRangeLabel,
@@ -413,106 +415,131 @@ export function SearchBar() {
           {title}
         </Text>
 
-        {!hideRight && (
+        {(!hideRight || action) && (
           <View style={styles.rightGroup}>
-            {me && (
-              <FilterDropdown
-                value={undefined}
-                options={lobbyDevicesDropdownItems}
-                keepOpen
-                trigger={({ onPress }) => (
-                  <Pressable
-                    onPress={onPress}
-                    style={({ pressed }) => [styles.lobbyBadgeWrap, pressed && { opacity: 0.8 }]}
-                  >
-                    <Feather name="users" size={18} color={colors.searchTxt} />
-                    {lobbyPeersCount > 0 && (
-                      <View style={[styles.lobbyBadge, { backgroundColor: colors.accent }]}>
-                        <Text style={styles.lobbyBadgeText} numberOfLines={1}>
-                          {lobbyPeersCount > 99 ? "99+" : lobbyPeersCount}
-                        </Text>
-                      </View>
-                    )}
-                    {lobbyRole === "sender" && (
-                      <Feather
-                        name="arrow-up"
-                        size={12}
-                        color={colors.accent}
-                        style={styles.lobbyRoleIcon}
-                      />
-                    )}
-                    {lobbyRole === "receiver" && (
-                      <Feather
-                        name="arrow-down"
-                        size={12}
-                        color={colors.accent}
-                        style={styles.lobbyRoleIcon}
-                      />
-                    )}
-                  </Pressable>
-                )}
-              />
-            )}
-            {Platform.OS === "web" && (
-              <IconBtn
-                onPress={() => {
-                  if (isRefreshing) return; 
-                  if (typeof globalThis !== "undefined") {
-                    globalThis.dispatchEvent?.(
-                      new globalThis.CustomEvent("app:refresh-content")
-                    );
-                  }
-                }}
-                disabled={isRefreshing}
+            {action ? (
+              <Pressable
+                onPress={action.onPress}
+                disabled={action.disabled}
+                style={({ pressed }) => [
+                  styles.actionBtn,
+                  {
+                    borderColor:
+                      (action.kind ?? "default") === "primary"
+                        ? colors.accent + "55"
+                        : colors.page + "55",
+                    backgroundColor: colors.searchBg,
+                    opacity: action.disabled ? 0.55 : pressed ? 0.8 : 1,
+                  },
+                ]}
               >
-                <Animated.View style={refreshIconStyle}>
-                  <Feather 
-                    name="refresh-cw" 
-                    size={18} 
-                    color={isRefreshing ? colors.accent : colors.searchTxt}
+                <Text style={[styles.actionBtnText, { color: colors.searchTxt }]}>
+                  {action.label}
+                </Text>
+              </Pressable>
+            ) : null}
+            {!hideRight ? (
+              <>
+                {me && (
+                  <FilterDropdown
+                    value={undefined}
+                    options={lobbyDevicesDropdownItems}
+                    keepOpen
+                    trigger={({ onPress }) => (
+                      <Pressable
+                        onPress={onPress}
+                        style={({ pressed }) => [styles.lobbyBadgeWrap, pressed && { opacity: 0.8 }]}
+                      >
+                        <Feather name="users" size={18} color={colors.searchTxt} />
+                        {lobbyPeersCount > 0 && (
+                          <View style={[styles.lobbyBadge, { backgroundColor: colors.accent }]}>
+                            <Text style={styles.lobbyBadgeText} numberOfLines={1}>
+                              {lobbyPeersCount > 99 ? "99+" : lobbyPeersCount}
+                            </Text>
+                          </View>
+                        )}
+                        {lobbyRole === "sender" && (
+                          <Feather
+                            name="arrow-up"
+                            size={12}
+                            color={colors.accent}
+                            style={styles.lobbyRoleIcon}
+                          />
+                        )}
+                        {lobbyRole === "receiver" && (
+                          <Feather
+                            name="arrow-down"
+                            size={12}
+                            color={colors.accent}
+                            style={styles.lobbyRoleIcon}
+                          />
+                        )}
+                      </Pressable>
+                    )}
                   />
-                </Animated.View>
-              </IconBtn>
-            )}
-
-            {!hideSearchFilter && (
-              <IconBtn
-                onPress={() => {
-                  router.push({
-                    pathname: "/search",
-                    params: q ? { query: q } : {},
-                  });
-                }}
-              >
-                <Feather name="search" size={18} color={colors.searchTxt} />
-              </IconBtn>
-            )}
-
-            {!hideSearchFilter && (
-              <FilterDropdown
-                value={uploaded ?? sort}
-                secondaryValue={uploaded ? sort : undefined}
-                onChange={(val) => {
-                  const isDatePreset = DATE_PRESETS.some((p) => p.value === val);
-                  if (isDatePreset) {
-                    setUploaded(val === uploaded ? null : val);
-                  } else {
-                    setSort(val as SortKey);
-                  }
-                }}
-                options={sortSelectItems}
-                keepOpen
-                trigger={({ onPress }) => (
-                  <IconBtn onPress={onPress}>
-                    <Feather name="filter" size={18} color={colors.accent} />
+                )}
+                {Platform.OS === "web" && (
+                  <IconBtn
+                    onPress={() => {
+                      if (isRefreshing) return; 
+                      if (typeof globalThis !== "undefined") {
+                        globalThis.dispatchEvent?.(
+                          new globalThis.CustomEvent("app:refresh-content")
+                        );
+                      }
+                    }}
+                    disabled={isRefreshing}
+                  >
+                    <Animated.View style={refreshIconStyle}>
+                      <Feather 
+                        name="refresh-cw" 
+                        size={18} 
+                        color={isRefreshing ? colors.accent : colors.searchTxt}
+                      />
+                    </Animated.View>
                   </IconBtn>
                 )}
-              />
-            )}
 
-            <IconBtn onPress={() => router.push("/tags")}>
-              <Feather name="tag" size={18} color={colors.accent} />
-            </IconBtn>
+                {!hideSearchFilter && (
+                  <IconBtn
+                    onPress={() => {
+                      router.push({
+                        pathname: "/search",
+                        params: q ? { query: q } : {},
+                      });
+                    }}
+                  >
+                    <Feather name="search" size={18} color={colors.searchTxt} />
+                  </IconBtn>
+                )}
+
+                {!hideSearchFilter && (
+                  <FilterDropdown
+                    value={uploaded ?? sort}
+                    secondaryValue={uploaded ? sort : undefined}
+                    onChange={(val) => {
+                      const isDatePreset = DATE_PRESETS.some((p) => p.value === val);
+                      if (isDatePreset) {
+                        setUploaded(val === uploaded ? null : val);
+                      } else {
+                        setSort(val as SortKey);
+                      }
+                    }}
+                    options={sortSelectItems}
+                    keepOpen
+                    trigger={({ onPress }) => (
+                      <IconBtn onPress={onPress}>
+                        <Feather name="filter" size={18} color={colors.accent} />
+                      </IconBtn>
+                    )}
+                  />
+                )}
+
+                <IconBtn onPress={() => router.push("/tags")}>
+                  <Feather name="tag" size={18} color={colors.accent} />
+                </IconBtn>
+              </>
+            ) : null}
           </View>
         )}
       </Animated.View>
@@ -580,6 +607,18 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 2,
     marginLeft: 6,
+  },
+  actionBtn: {
+    height: 34,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    justifyContent: "center",
+    marginRight: 6,
+  },
+  actionBtnText: {
+    fontSize: 13,
+    fontWeight: "800",
   },
   iconBtnRound: {
     width: BTN_SIDE,

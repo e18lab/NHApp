@@ -1430,7 +1430,7 @@ ipcMain.handle('electron:fetchProfileEditPage', async (event, { userId, slug }) 
     const params = normalizeProfileEditParams(userId, slug);
     if (!params.ok) return { success: false, error: params.error };
     const { userId: u, slug: s } = params;
-    const url = `https://nhentai.net/users/${u}/${encodeURIComponent(s)}/edit`;
+    const url = `https://nhentai.net/users/${u}/${encodeURIComponent(s)}/edit/`;
     const result = await new Promise((resolve) => {
       session.defaultSession.cookies.get({ url }).then((cookieList) => {
         const cookieHeader = cookieList.map(c => `${c.name}=${c.value}`).join('; ');
@@ -1567,7 +1567,7 @@ ipcMain.handle('electron:submitProfileEdit', async (event, { userId, slug, formD
     const { userId: u, slug: s } = params;
     let urlStr;
     try {
-      urlStr = new URL(`https://nhentai.net/users/${u}/${encodeURIComponent(s)}/edit`).href;
+      urlStr = new URL(`https://nhentai.net/users/${u}/${encodeURIComponent(s)}/edit/`).href;
     } catch (urlErr) {
       return { success: false, error: 'Invalid profile URL' };
     }

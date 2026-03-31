@@ -1,32 +1,32 @@
 import { requestStoragePush, subscribeToStorageApplied } from "@/api/nhappApi/cloudStorage";
-import { getAuthStorageReady } from "@/api/v2/client";
 import { initCdn } from "@/api/v2";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { getAuthStorageReady } from "@/api/v2/client";
 import { UIKIT_AS_HOME_KEY } from "@/components/settings/keys";
+import { Feather } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as Font from "expo-font";
 import * as NavigationBar from "expo-navigation-bar";
 import { Stack, usePathname, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import * as Font from "expo-font";
-import { useFonts } from "expo-font";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { View, useWindowDimensions } from "react-native";
 import { Drawer } from "react-native-drawer-layout";
 import {
-    SafeAreaProvider,
-    SafeAreaView,
-    useSafeAreaInsets,
+  SafeAreaProvider,
+  SafeAreaView,
+  useSafeAreaInsets,
 } from "react-native-safe-area-context";
-import { Feather } from "@expo/vector-icons";
 
 import "@/background/autoImport.task";
 import { DrawerContext } from "@/components/DrawerContext";
 import {
-    ELECTRON_TITLE_BAR_HEIGHT,
-    ElectronTitleBar,
+  ELECTRON_TITLE_BAR_HEIGHT,
+  ElectronTitleBar,
 } from "@/components/ElectronTitleBar";
 import { OverlayPortalProvider } from "@/components/OverlayPortal";
 import { SearchBar } from "@/components/SearchBar";
 import SideMenu from "@/components/SideMenu";
+import { ToastProvider } from "@/components/ToastProvider";
 import { getGridConfigMap } from "@/config/gridConfig";
 import AutoImportProvider from "@/context/AutoImportProvider";
 import { DateRangeProvider } from "@/context/DateRangeContext";
@@ -34,11 +34,12 @@ import { SearchContentProvider } from "@/context/SearchContentContext";
 import { SortProvider } from "@/context/SortContext";
 import { TagProvider } from "@/context/TagFilterContext";
 import { TagLibraryProvider } from "@/context/TagLibraryContext";
-import { useCloudStorageSync } from "@/hooks/useCloudStorageSync";
-import { syncOnlineFavoritesFullOnLaunch } from "@/lib/onlineFavoritesStartupSync";
+import { TopBarActionProvider } from "@/context/TopBarActionContext";
 import { isElectron } from "@/electron/bridge";
+import { useCloudStorageSync } from "@/hooks/useCloudStorageSync";
 import { ThemeProvider, useTheme } from "@/lib/ThemeContext";
 import { I18nProvider } from "@/lib/i18n/I18nContext";
+import { syncOnlineFavoritesFullOnLaunch } from "@/lib/onlineFavoritesStartupSync";
 import { Platform } from "react-native";
 
 import { enableFreeze, enableScreens } from "react-native-screens";
@@ -286,40 +287,42 @@ function AppContent() {
   }
 
   return (
-    <SearchContentProvider>
-      {showSearchBar ? (
-        <View style={{ backgroundColor: colors.searchBg }}>
-          <SearchBar />
-        </View>
-      ) : null}
+    <TopBarActionProvider>
+      <SearchContentProvider>
+        {showSearchBar ? (
+          <View style={{ backgroundColor: colors.searchBg }}>
+            <SearchBar />
+          </View>
+        ) : null}
 
-      <Stack
-        screenOptions={{
-          headerShown: false,
-          contentStyle: { flex: 1, backgroundColor: colors.bg },
-          animation: "simple_push",
-          freezeOnBlur: true,
-        }}
-      >
-        <Stack.Screen name="index" />
-        <Stack.Screen name="search" />
-        <Stack.Screen name="favorites" />
-        <Stack.Screen name="favoritesOnline" />
-        <Stack.Screen name="explore" />
-        <Stack.Screen name="book/[id]" />
-        <Stack.Screen name="profile/[id]/[slug]" />
-        <Stack.Screen name="profile/[id]/edit" />
-        <Stack.Screen name="profile/[id]/blacklist" />
-        <Stack.Screen name="read" />
-        <Stack.Screen name="downloaded" />
-        <Stack.Screen name="recommendations" />
-        <Stack.Screen name="tags/index" />
-        <Stack.Screen name="settings/index" />
-        <Stack.Screen name="uikit" />
-        <Stack.Screen name="whats-new" />
-        <Stack.Screen name="+not-found" />
-      </Stack>
-    </SearchContentProvider>
+        <Stack
+          screenOptions={{
+            headerShown: false,
+            contentStyle: { flex: 1, backgroundColor: colors.bg },
+            animation: "simple_push",
+            freezeOnBlur: true,
+          }}
+        >
+          <Stack.Screen name="index" />
+          <Stack.Screen name="search" />
+          <Stack.Screen name="favorites" />
+          <Stack.Screen name="favoritesOnline" />
+          <Stack.Screen name="explore" />
+          <Stack.Screen name="book/[id]" />
+          <Stack.Screen name="profile/[id]/[slug]" />
+          <Stack.Screen name="profile/[id]/edit" />
+          <Stack.Screen name="profile/[id]/blacklist" />
+          <Stack.Screen name="read" />
+          <Stack.Screen name="downloaded" />
+          <Stack.Screen name="recommendations" />
+          <Stack.Screen name="tags/index" />
+          <Stack.Screen name="settings/index" />
+          <Stack.Screen name="uikit" />
+          <Stack.Screen name="whats-new" />
+          <Stack.Screen name="+not-found" />
+        </Stack>
+      </SearchContentProvider>
+    </TopBarActionProvider>
   );
 }
 
@@ -408,24 +411,26 @@ export default function RootLayout() {
   }
 
   return (
-    <AutoImportProvider>
-      <ThemeProvider>
-        <I18nProvider>
-          <DateRangeProvider>
-            <SafeAreaProvider>
-              <SortProvider>
-                <TagProvider>
-                  <TagLibraryProvider>
-                    <CloudStorageSync />
-                    <OnlineFavoritesStartupSync />
-                    <AppShell />
-                  </TagLibraryProvider>
-                </TagProvider>
-              </SortProvider>
-            </SafeAreaProvider>
-          </DateRangeProvider>
-        </I18nProvider>
-      </ThemeProvider>
-    </AutoImportProvider>
+    <SafeAreaProvider>
+      <AutoImportProvider>
+        <ThemeProvider>
+          <ToastProvider>
+            <I18nProvider>
+              <DateRangeProvider>
+                <SortProvider>
+                  <TagProvider>
+                    <TagLibraryProvider>
+                      <CloudStorageSync />
+                      <OnlineFavoritesStartupSync />
+                      <AppShell />
+                    </TagLibraryProvider>
+                  </TagProvider>
+                </SortProvider>
+              </DateRangeProvider>
+            </I18nProvider>
+          </ToastProvider>
+        </ThemeProvider>
+      </AutoImportProvider>
+    </SafeAreaProvider>
   );
 }

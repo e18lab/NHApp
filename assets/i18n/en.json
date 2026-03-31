@@ -51,6 +51,13 @@
       "attempts": "Attempts: {n}"
     }
   },
+  "toast": {
+    "errorTitle": "Error",
+    "httpErrorTitle": "HTTP {code}",
+    "httpErrorGeneric": "HTTP {code}",
+    "genericFailure": "Couldn't complete the action.",
+    "avatarUploadNotImplemented": "Avatar upload is not implemented on the server yet."
+  },
   "bookcard": {
     "collectingInfo": "Collecting info"
   },
@@ -102,6 +109,7 @@
     "hide": "Hide",
     "clearSelection": "Clear selection",
     "retry": "Retry",
+    "loading": "Loading…",
     "apply": "Apply"
   },
   "explore": {

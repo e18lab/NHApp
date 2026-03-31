@@ -51,6 +51,13 @@
       "attempts": "Попыток: {n}"
     }
   },
+  "toast": {
+    "errorTitle": "Ошибка",
+    "httpErrorTitle": "HTTP {code}",
+    "httpErrorGeneric": "HTTP {code}",
+    "genericFailure": "Не удалось выполнить действие.",
+    "avatarUploadNotImplemented": "Загрузка аватара пока не реализована на сервере."
+  },
   "bookcard": {
     "collectingInfo": "Собирается информация"
   },
@@ -102,6 +109,7 @@
     "hide": "Скрыть",
     "clearSelection": "Снять всё",
     "retry": "Повторить",
+    "loading": "Загрузка…",
     "apply": "Применить"
   },
   "explore": {

@@ -94,7 +94,7 @@ export async function fetchProfileEditForm(
 
   if (isNative()) {
     try {
-      const url = `${NH_HOST}/users/${userId}/${encodeURIComponent(slug)}/edit`;
+      const url = `${NH_HOST}/users/${userId}/${encodeURIComponent(slug)}/edit/`;
       const { html, finalUrl, status } = await fetchHtml(url);
 
       if (!html || status === 0) {
@@ -182,7 +182,7 @@ export async function submitProfileEdit(
 
   if (isNative()) {
     try {
-      const urlPath = `/users/${userId}/${encodeURIComponent(slug)}/edit`;
+      const urlPath = `/users/${userId}/${encodeURIComponent(slug)}/edit/`;
       const form = new FormData();
 
       form.append("csrfmiddlewaretoken", formData.csrf || "");

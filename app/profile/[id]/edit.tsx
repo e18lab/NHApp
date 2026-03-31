@@ -1,9 +1,10 @@
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   Animated,
+  Keyboard,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -15,9 +16,27 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { getMe, getUserProfile, updateProfile, uploadAvatar } from "@/api/v2";
+import { useTheme } from "@/lib/ThemeContext";
+import { useI18n } from "@/lib/i18n/I18nContext";
+import { Feather } from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
+import {
+  ApiError,
+  autocompleteTags,
+  getBlacklist,
+  getMe,
+  getUserProfile,
+  updateBlacklist,
+  updateProfile,
+  uploadAvatar,
+  type TagShort,
+  type TagType,
+} from "@/api/v2";
 import { resolveImageUrl } from "@/api/v2/config";
 import { isElectron, showOpenDialog } from "@/electron/bridge";
+import { useToast } from "@/components/ToastProvider";
+import { useTopBarAction } from "@/context/TopBarActionContext";
+import { FilterDropdown, type SelectItem } from "@/components/uikit/FilterDropdown";
 
 interface ProfileEditFormData {
   username: string;
@@ -28,10 +47,66 @@ interface ProfileEditFormData {
   new_password1?: string;
   new_password2?: string;
 }
-import { useTheme } from "@/lib/ThemeContext";
-import { useI18n } from "@/lib/i18n/I18nContext";
-import { Feather } from "@expo/vector-icons";
-import * as ImagePicker from "expo-image-picker";
+
+const InputField = React.memo(function InputField({
+  label,
+  value,
+  onChangeText,
+  icon,
+  multiline,
+  secureTextEntry,
+  keyboardType,
+  placeholder,
+  uiSub,
+  uiText,
+  uiBorder,
+  uiInputBg,
+  inputRef,
+  onFocus,
+}: {
+  label: string;
+  value: string;
+  onChangeText: (v: string) => void;
+  icon: keyof typeof Feather.glyphMap;
+  multiline?: boolean;
+  secureTextEntry?: boolean;
+  keyboardType?: "default" | "email-address";
+  placeholder?: string;
+  uiSub: string;
+  uiText: string;
+  uiBorder: string;
+  uiInputBg: string;
+  inputRef?: React.Ref<TextInput>;
+  onFocus?: () => void;
+}) {
+  return (
+    <View style={s.fieldWrap}>
+      <View style={s.fieldLabelRow}>
+        <Feather name={icon} size={13} color={uiSub} />
+        <Text style={[s.fieldLabel, { color: uiSub }]}>{label}</Text>
+      </View>
+      <TextInput
+        ref={inputRef}
+        value={value}
+        onChangeText={onChangeText}
+        onFocus={onFocus}
+        style={[
+          s.fieldInput,
+          multiline && s.fieldTextArea,
+          { backgroundColor: uiInputBg, color: uiText, borderColor: uiBorder },
+        ]}
+        placeholderTextColor={uiSub + "88"}
+        placeholder={placeholder}
+        autoCapitalize="none"
+        autoCorrect={false}
+        multiline={multiline}
+        numberOfLines={multiline ? 4 : 1}
+        secureTextEntry={secureTextEntry}
+        keyboardType={keyboardType}
+      />
+    </View>
+  );
+});
 
 const Skeleton = ({ style }: { style?: any }) => {
   const opacity = useRef(new Animated.Value(0.6)).current;
@@ -57,6 +132,8 @@ export default function ProfileEditScreen() {
   const { t } = useI18n();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { showToast } = useToast();
+  const { setAction } = useTopBarAction();
   const { id, slug, avatarUrl } = useLocalSearchParams<{ id: string; slug?: string | string[]; avatarUrl?: string }>();
   const rawId = Array.isArray(id) ? id[0] : id;
   const rawSlug = Array.isArray(slug) ? slug[0] : slug;
@@ -71,8 +148,175 @@ export default function ProfileEditScreen() {
   const [avatarPath, setAvatarPath] = useState<string | null>(null);
   const [removeAvatar, setRemoveAvatar] = useState(false);
   const [currentAvatarUri, setCurrentAvatarUri] = useState<string | null>(null);
-  const [savedMessage, setSavedMessage] = useState(false);
+  const serverAvatarUriRef = useRef<string | null>(null);
+  const baselineFormRef = useRef<ProfileEditFormData | null>(null);
+  const baselineRemoveAvatarRef = useRef<boolean>(false);
+  const baselineAvatarPathRef = useRef<string | null>(null);
+  const baselineBlacklistIdsRef = useRef<Set<number>>(new Set());
+  const blacklistLoadedOnceRef = useRef(false);
   const [showPasswords, setShowPasswords] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const scrollRef = useRef<ScrollView | null>(null);
+  const lastFocusedRef = useRef<React.RefObject<TextInput | null> | null>(null);
+
+  const [showBlacklist, setShowBlacklist] = useState(false);
+  const [blacklistLoading, setBlacklistLoading] = useState(false);
+  const [blacklistError, setBlacklistError] = useState(false);
+  const [blacklistType, setBlacklistType] = useState<TagType>("tag");
+  const [blacklistTags, setBlacklistTags] = useState<TagShort[]>([]);
+  const [blacklistQuery, setBlacklistQuery] = useState("");
+  const [blacklistSuggestions, setBlacklistSuggestions] = useState<TagShort[]>([]);
+  const [blacklistSuggestLoading, setBlacklistSuggestLoading] = useState(false);
+  const blacklistReqRef = useRef(0);
+  const blacklistDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const visibleBlacklistSuggestions = useMemo(() => {
+    if (blacklistTags.length === 0) return blacklistSuggestions;
+    const picked = new Set<number>(blacklistTags.map((t) => t.id));
+    return blacklistSuggestions.filter((s) => !picked.has(s.id));
+  }, [blacklistSuggestions, blacklistTags]);
+
+  const usernameRef = useRef<TextInput | null>(null);
+  const emailRef = useRef<TextInput | null>(null);
+  const aboutRef = useRef<TextInput | null>(null);
+  const favTagsRef = useRef<TextInput | null>(null);
+  const oldPassRef = useRef<TextInput | null>(null);
+  const newPass1Ref = useRef<TextInput | null>(null);
+  const newPass2Ref = useRef<TextInput | null>(null);
+  const blacklistInputRef = useRef<TextInput | null>(null);
+
+  const blacklistTypeItems: SelectItem[] = useMemo(
+    () => [
+      { value: "tag", label: "Tag" },
+      { value: "artist", label: "Artist" },
+      { value: "character", label: "Character" },
+      { value: "parody", label: "Parody" },
+      { value: "group", label: "Group" },
+      { value: "language", label: "Language" },
+      { value: "category", label: "Category" },
+    ],
+    []
+  );
+
+  const runBlacklistSuggest = useCallback(
+    async (q: string, typeValue: TagType, opts?: { silent?: boolean }) => {
+      const my = ++blacklistReqRef.current;
+      const silent = !!opts?.silent;
+      if (!silent) setBlacklistSuggestLoading(true);
+      try {
+        const res = await autocompleteTags({ query: q, type: typeValue, limit: 15 });
+        if (blacklistReqRef.current !== my) return;
+        // Normalize to TagShort-like items we can add immediately.
+        setBlacklistSuggestions(
+          res.map((tag) => ({
+            id: tag.id,
+            name: tag.name,
+            slug: "",
+            type: tag.type as TagType,
+            count: tag.count ?? 0,
+          })) as any
+        );
+      } catch {
+        if (blacklistReqRef.current === my) setBlacklistSuggestions([]);
+      } finally {
+        if (!silent && blacklistReqRef.current === my) setBlacklistSuggestLoading(false);
+      }
+    },
+    []
+  );
+
+  useEffect(() => {
+    if (blacklistLoading) return;
+    if (!showBlacklist) return;
+    const q = blacklistQuery.trim();
+    if (blacklistDebounceRef.current) clearTimeout(blacklistDebounceRef.current);
+    blacklistDebounceRef.current = setTimeout(() => {
+      runBlacklistSuggest(q, blacklistType);
+    }, q ? 220 : 80);
+    return () => {
+      if (blacklistDebounceRef.current) clearTimeout(blacklistDebounceRef.current);
+    };
+  }, [blacklistQuery, blacklistType, blacklistLoading, runBlacklistSuggest, showBlacklist]);
+
+  const scrollToInput = useCallback((ref: React.RefObject<TextInput | null>, extraOffset = 110) => {
+    const input = ref.current as any;
+    if (!input) return;
+
+    // react-native-web / Electron: findNodeHandle is not supported.
+    // Use DOM scrollIntoView when available.
+    if (Platform.OS === "web") {
+      const el = input?._node ?? input;
+      if (el && typeof el.scrollIntoView === "function") {
+        el.scrollIntoView({ block: "center", inline: "nearest" });
+      }
+      return;
+    }
+
+    // Native: ensure focused input is above the keyboard.
+    const node = input;
+    (scrollRef.current as any)?.scrollResponderScrollNativeHandleToKeyboard?.(
+      node,
+      extraOffset,
+      true
+    );
+  }, []);
+
+  useEffect(() => {
+    const onShow = (e: any) => {
+      const h = e?.endCoordinates?.height;
+      setKeyboardHeight(typeof h === "number" ? h : 0);
+      // When keyboard appears, re-scroll to the last focused input.
+      // This fixes the "first tap doesn't scroll" timing issue.
+      const ref = lastFocusedRef.current;
+      if (ref) {
+        setTimeout(() => scrollToInput(ref), 30);
+      }
+    };
+    const onHide = () => setKeyboardHeight(0);
+    const subShow = Keyboard.addListener("keyboardDidShow", onShow);
+    const subHide = Keyboard.addListener("keyboardDidHide", onHide);
+    return () => {
+      subShow.remove();
+      subHide.remove();
+    };
+  }, []);
+
+  const handleFocus = useCallback(
+    (ref: React.RefObject<TextInput | null>, extraOffset?: number) => {
+      lastFocusedRef.current = ref;
+      // Try to scroll immediately (works when keyboard is already open),
+      // and also after layout settles.
+      scrollToInput(ref, extraOffset);
+      setTimeout(() => scrollToInput(ref, extraOffset), 30);
+    },
+    [scrollToInput]
+  );
+
+  const toastForError = useCallback(
+    (e: any): { title: string; message?: string } => {
+      if (e instanceof ApiError) {
+        const apiMsg = (e.message || "").trim();
+        const bodyErr =
+          e.body && typeof e.body === "object" && "error" in (e.body as any)
+            ? String((e.body as any).error)
+            : null;
+        const known =
+          bodyErr && bodyErr.toLowerCase().includes("avatar upload not yet implemented")
+            ? t("toast.avatarUploadNotImplemented")
+            : null;
+        const msg = known || bodyErr || apiMsg || t("toast.httpErrorGeneric", { code: e.status });
+        return {
+          title: t("toast.httpErrorTitle", { code: e.status }),
+          message: msg,
+        };
+      }
+      return {
+        title: t("toast.errorTitle"),
+        message: e?.message ? String(e.message) : t("toast.genericFailure"),
+      };
+    },
+    [t]
+  );
 
   const ui = {
     bg: colors.bg,
@@ -111,9 +355,25 @@ export default function ProfileEditScreen() {
       });
       // Show current avatar from API (resolve relative path)
       if (me.avatar_url && !initialAvatarUrl) {
-        setCurrentAvatarUri(resolveImageUrl(me.avatar_url));
+        const resolved = resolveImageUrl(me.avatar_url);
+        serverAvatarUriRef.current = resolved;
+        setCurrentAvatarUri(resolved);
+      } else {
+        serverAvatarUriRef.current = initialAvatarUrl;
       }
       setRemoveAvatar(false);
+      // Baseline for "dirty" detection
+      baselineFormRef.current = {
+        username: me.username ?? "",
+        email: me.email ?? "",
+        about,
+        favorite_tags,
+        old_password: "",
+        new_password1: "",
+        new_password2: "",
+      };
+      baselineRemoveAvatarRef.current = false;
+      baselineAvatarPathRef.current = null;
     } catch (e: any) {
       setError(
         e?.status === 401
@@ -124,6 +384,27 @@ export default function ProfileEditScreen() {
       setLoading(false);
     }
   }, [t, initialAvatarUrl]);
+
+  const isDirty = useMemo(() => {
+    if (!form) return false;
+    const base = baselineFormRef.current;
+    if (!base) return false;
+    const fieldsChanged =
+      form.username !== base.username ||
+      form.email !== base.email ||
+      form.about !== base.about ||
+      form.favorite_tags !== base.favorite_tags ||
+      (form.old_password ?? "") !== (base.old_password ?? "") ||
+      (form.new_password1 ?? "") !== (base.new_password1 ?? "") ||
+      (form.new_password2 ?? "") !== (base.new_password2 ?? "");
+    const avatarChanged =
+      removeAvatar !== baselineRemoveAvatarRef.current ||
+      avatarPath !== baselineAvatarPathRef.current;
+    const baseIds = baselineBlacklistIdsRef.current;
+    const blacklistChanged = blacklistTags.some((t) => !baseIds.has(t.id)) ||
+      [...baseIds].some((id) => !blacklistTags.some((t) => t.id === id));
+    return fieldsChanged || avatarChanged || blacklistChanged;
+  }, [form, removeAvatar, avatarPath, blacklistTags]);
 
   useEffect(() => {
     loadForm();
@@ -199,6 +480,14 @@ export default function ProfileEditScreen() {
     setSaving(true);
     setError(null);
     try {
+      // Blacklist diff (v2)
+      const baseIds = baselineBlacklistIdsRef.current;
+      const currIds = new Set<number>(blacklistTags.map((t) => t.id));
+      const added: number[] = [];
+      const removed: number[] = [];
+      for (const id of currIds) if (!baseIds.has(id)) added.push(id);
+      for (const id of baseIds) if (!currIds.has(id)) removed.push(id);
+
       await updateProfile({
         username: form.username || undefined,
         email: form.email || undefined,
@@ -211,84 +500,128 @@ export default function ProfileEditScreen() {
 
       if (!removeAvatar && avatarPath) {
         const fd = new FormData();
-        const filename = avatarPath.split("/").pop() || avatarPath.split("\\").pop() || "avatar.jpg";
+        const filename =
+          avatarPath.split("/").pop() ||
+          avatarPath.split("\\").pop() ||
+          "avatar.jpg";
         const ext = filename.split(".").pop()?.toLowerCase() ?? "jpg";
         const mime =
-          ext === "png" ? "image/png" : ext === "gif" ? "image/gif" : ext === "webp" ? "image/webp" : "image/jpeg";
+          ext === "png"
+            ? "image/png"
+            : ext === "gif"
+            ? "image/gif"
+            : ext === "webp"
+            ? "image/webp"
+            : "image/jpeg";
+
         if (isElectron()) {
-          const dataUrlResult = await (window as any).electron?.getFileAsDataUrl?.(avatarPath);
+          const dataUrlResult = await (window as any).electron?.getFileAsDataUrl?.(
+            avatarPath
+          );
           if (dataUrlResult?.success && dataUrlResult?.dataUrl) {
             const res = await fetch(dataUrlResult.dataUrl);
             const blob = await res.blob();
             fd.append("avatar", blob, filename);
+          } else {
+            throw new Error("Electron: failed to read avatar file");
           }
         } else {
           fd.append("avatar", { uri: avatarPath, name: filename, type: mime } as any);
         }
+
         await uploadAvatar(fd);
       }
 
+      if (added.length || removed.length) {
+        await updateBlacklist({ added, removed });
+        baselineBlacklistIdsRef.current = currIds;
+      }
+
       setError(null);
-      setSavedMessage(true);
-      setTimeout(() => setSavedMessage(false), 2500);
+      showToast({ type: "success", title: t("profile.edit.saved") });
+      // Clear password fields after save and update baseline so "Save" disappears
+      const clearedForm: ProfileEditFormData = {
+        ...form,
+        old_password: "",
+        new_password1: "",
+        new_password2: "",
+      };
+      setForm(clearedForm);
+      baselineFormRef.current = clearedForm;
+      // Avatar selection/removal is an action, not a persistent "dirty" state
+      setAvatarPath(null);
+      setRemoveAvatar(false);
+      baselineAvatarPathRef.current = null;
+      baselineRemoveAvatarRef.current = false;
     } catch (e: any) {
-      const raw = e?.message || "Save failed";
-      const friendly =
-        raw.includes("ERR_INVALID_ARGUMENT") || raw.includes("ERR_")
-          ? t("profile.edit.errorNetwork")
-          : raw;
-      setError(friendly);
+      // If avatar operation failed, roll UI back to the server avatar.
+      if (removeAvatar || avatarPath) {
+        setAvatarPath(null);
+        setRemoveAvatar(false);
+        setCurrentAvatarUri(serverAvatarUriRef.current);
+      }
+      const toast = toastForError(e);
+      showToast({ type: "error", title: toast.title, message: toast.message });
+      // Keep banner minimal (or empty) — toast is primary UX.
+      setError(null);
     } finally {
       setSaving(false);
     }
-  }, [form, removeAvatar, avatarPath, t]);
+  }, [form, removeAvatar, avatarPath, showToast, toastForError, t, blacklistTags]);
 
   const avatarUri = currentAvatarUri || (!removeAvatar ? initialAvatarUrl : null);
   const hasAvatar = Boolean(avatarUri);
 
-  const InputField = ({
-    label,
-    value,
-    onChangeText,
-    icon,
-    multiline,
-    secureTextEntry,
-    keyboardType,
-    placeholder,
-  }: {
-    label: string;
-    value: string;
-    onChangeText: (v: string) => void;
-    icon: keyof typeof Feather.glyphMap;
-    multiline?: boolean;
-    secureTextEntry?: boolean;
-    keyboardType?: "default" | "email-address";
-    placeholder?: string;
-  }) => (
-    <View style={s.fieldWrap}>
-      <View style={s.fieldLabelRow}>
-        <Feather name={icon} size={13} color={ui.sub} />
-        <Text style={[s.fieldLabel, { color: ui.sub }]}>{label}</Text>
-      </View>
-      <TextInput
-        value={value}
-        onChangeText={onChangeText}
-        style={[
-          s.fieldInput,
-          multiline && s.fieldTextArea,
-          { backgroundColor: ui.inputBg, color: ui.text, borderColor: ui.border },
-        ]}
-        placeholderTextColor={ui.sub + "88"}
-        placeholder={placeholder}
-        autoCapitalize="none"
-        autoCorrect={false}
-        multiline={multiline}
-        numberOfLines={multiline ? 4 : 1}
-        secureTextEntry={secureTextEntry}
-        keyboardType={keyboardType}
-      />
-    </View>
-  );
+  useEffect(() => {
+    if (!showBlacklist) return;
+    if (blacklistLoading) return;
+    if (blacklistLoadedOnceRef.current) return;
+    blacklistLoadedOnceRef.current = true;
+    setBlacklistLoading(true);
+    setBlacklistError(false);
+    getBlacklist()
+      .then((bl) => {
+        const tags = Array.isArray(bl.tags) ? bl.tags : [];
+        setBlacklistTags(tags);
+        baselineBlacklistIdsRef.current = new Set(tags.map((t) => t.id));
+      })
+      .catch((e) => {
+        setBlacklistError(true);
+        const toast = toastForError(e);
+        showToast({ type: "error", title: toast.title, message: toast.message });
+      })
+      .finally(() => setBlacklistLoading(false));
+  }, [showBlacklist, blacklistLoading, showToast, toastForError]);
+
+  useEffect(() => {
+    if (!showBlacklist) return;
+    // Autofocus the blacklist input when section opens (same UX as other inputs).
+    if (Platform.OS === "web") return;
+    const t = setTimeout(() => {
+      blacklistInputRef.current?.focus?.();
+      handleFocus(blacklistInputRef);
+    }, 60);
+    return () => clearTimeout(t);
+  }, [showBlacklist, handleFocus]);
+
+  useEffect(() => {
+    // Must be called on every render (no conditional hooks).
+    if (!form || loading) {
+      setAction(null);
+      return;
+    }
+    if (!isDirty) {
+      setAction(null);
+      return;
+    }
+    setAction({
+      label: t("common.save"),
+      onPress: handleSubmit,
+      disabled: saving,
+      kind: "primary",
+    });
+    return () => setAction(null);
+  }, [form, loading, isDirty, saving, setAction, handleSubmit, t]);
 
   if (loading) {
     return (
@@ -345,15 +678,29 @@ export default function ProfileEditScreen() {
 
   return (
     <View style={[s.container, { backgroundColor: ui.bg }]}>
-      <Stack.Screen options={{ title: t("profile.edit.title") }} />
+      <Stack.Screen
+        options={{
+          title: t("profile.edit.title"),
+        }}
+      />
 
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         style={{ flex: 1 }}
       >
         <ScrollView
+          ref={scrollRef}
           style={s.scroll}
-          contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 80 + insets.bottom }}
+          automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
+          contentContainerStyle={{
+            paddingHorizontal: 16,
+            paddingTop: 12,
+            paddingBottom:
+              16 +
+              insets.bottom +
+              keyboardHeight +
+              (Platform.OS !== "web" && showBlacklist ? 120 : 0),
+          }}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
@@ -362,12 +709,6 @@ export default function ProfileEditScreen() {
             <View style={[s.banner, { backgroundColor: ui.danger + "18" }]}>
               <Feather name="alert-triangle" size={15} color={ui.danger} />
               <Text style={[s.bannerText, { color: ui.danger }]}>{error}</Text>
-            </View>
-          ) : null}
-          {savedMessage ? (
-            <View style={[s.banner, { backgroundColor: ui.successBg }]}>
-              <Feather name="check-circle" size={15} color={ui.accent} />
-              <Text style={[s.bannerText, { color: ui.accent }]}>{t("profile.edit.saved")}</Text>
             </View>
           ) : null}
 
@@ -424,6 +765,12 @@ export default function ProfileEditScreen() {
               value={form.username}
               onChangeText={(v) => updateForm({ username: v })}
               icon="at-sign"
+              uiSub={ui.sub}
+              uiText={ui.text}
+              uiBorder={ui.border}
+              uiInputBg={ui.inputBg}
+              inputRef={usernameRef}
+              onFocus={() => handleFocus(usernameRef)}
             />
             <InputField
               label={t("profile.edit.email")}
@@ -431,6 +778,12 @@ export default function ProfileEditScreen() {
               onChangeText={(v) => updateForm({ email: v })}
               icon="mail"
               keyboardType="email-address"
+              uiSub={ui.sub}
+              uiText={ui.text}
+              uiBorder={ui.border}
+              uiInputBg={ui.inputBg}
+              inputRef={emailRef}
+              onFocus={() => handleFocus(emailRef)}
             />
             <InputField
               label={t("profile.edit.about")}
@@ -438,6 +791,12 @@ export default function ProfileEditScreen() {
               onChangeText={(v) => updateForm({ about: v })}
               icon="file-text"
               multiline
+              uiSub={ui.sub}
+              uiText={ui.text}
+              uiBorder={ui.border}
+              uiInputBg={ui.inputBg}
+              inputRef={aboutRef}
+              onFocus={() => handleFocus(aboutRef)}
             />
             <InputField
               label={t("profile.edit.favoriteTags")}
@@ -445,36 +804,248 @@ export default function ProfileEditScreen() {
               onChangeText={(v) => updateForm({ favorite_tags: v })}
               icon="tag"
               placeholder="tag1, tag2, ..."
+              uiSub={ui.sub}
+              uiText={ui.text}
+              uiBorder={ui.border}
+              uiInputBg={ui.inputBg}
+              inputRef={favTagsRef}
+              onFocus={() => handleFocus(favTagsRef)}
             />
           </View>
 
-          {/* Blacklist link */}
-          <Pressable
-            onPress={() =>
-              router.push({
-                pathname: "/profile/[id]/blacklist",
-                params: { id: userId, slug: slugStr },
-              })
-            }
-            style={({ pressed }) => [
-              s.card,
-              s.linkCard,
-              { backgroundColor: ui.card, opacity: pressed ? 0.85 : 1 },
-            ]}
-          >
-            <View style={[s.linkIcon, { backgroundColor: ui.chipBg }]}>
-              <Feather name="shield" size={18} color={ui.accent} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={[s.linkTitle, { color: ui.text }]}>
+          {/* Blacklist (v2) */}
+          <View style={[s.card, { backgroundColor: ui.card }]}>
+            <Pressable
+              onPress={() => setShowBlacklist((v) => !v)}
+              style={s.passwordToggle}
+            >
+              <View style={[s.linkIcon, { backgroundColor: ui.chipBg }]}>
+                <Feather name="shield" size={16} color={ui.accent} />
+              </View>
+              <Text style={[s.passwordToggleText, { color: ui.text }]}>
                 {t("profile.edit.blacklist")}
               </Text>
-              <Text style={[s.linkSub, { color: ui.sub }]}>
-                {t("profile.blacklist.description") || "Manage hidden tags, artists, and more"}
-              </Text>
-            </View>
-            <Feather name="chevron-right" size={20} color={ui.sub} />
-          </Pressable>
+              <Feather
+                name={showBlacklist ? "chevron-up" : "chevron-down"}
+                size={20}
+                color={ui.sub}
+              />
+            </Pressable>
+
+            {showBlacklist ? (
+              <View style={{ marginTop: 16 }}>
+                {blacklistLoading ? (
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 10 }}>
+                    <ActivityIndicator size="small" color={ui.sub} />
+                    <Text style={{ color: ui.sub, fontWeight: "700" }}>
+                      {t("common.loading")}
+                    </Text>
+                  </View>
+                ) : blacklistError ? (
+                  <Pressable
+                    onPress={() => {
+                      blacklistLoadedOnceRef.current = false;
+                      setBlacklistError(false);
+                      setBlacklistTags([]);
+                    }}
+                    style={({ pressed }) => [
+                      {
+                        alignSelf: "flex-start",
+                        paddingVertical: 6,
+                        paddingHorizontal: 10,
+                        borderRadius: 10,
+                        borderWidth: 1,
+                        borderColor: ui.border,
+                        marginBottom: 12,
+                        opacity: pressed ? 0.8 : 1,
+                      },
+                    ]}
+                  >
+                    <Text style={{ color: ui.sub, fontWeight: "800" }}>
+                      {t("common.retry")}
+                    </Text>
+                  </Pressable>
+                ) : null}
+
+                <View style={{ width: "100%" }}>
+                  {/* Results first (full width), controls below */}
+                  <View
+                    style={{
+                      width: "100%",
+                      borderWidth: 1,
+                      borderColor: ui.border,
+                      borderRadius: 14,
+                      overflow: "hidden",
+                      backgroundColor: ui.card,
+                      maxHeight: 260,
+                      minHeight: 260,
+                    }}
+                  >
+                    <ScrollView
+                      keyboardShouldPersistTaps="handled"
+                      nestedScrollEnabled
+                      showsVerticalScrollIndicator
+                      contentContainerStyle={{ padding: 12, paddingTop: 10 }}
+                    >
+                      {blacklistSuggestLoading ? (
+                        <View style={{ gap: 10 }}>
+                          {Array.from({ length: 5 }).map((_, i) => (
+                            <View key={`sk_${i}`} style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                              <View style={{ flex: 1 }}>
+                                <Skeleton style={{ height: 44, borderRadius: 12, width: "100%" }} />
+                                <Skeleton style={{ height: 12, borderRadius: 8, width: "48%", marginTop: 8 }} />
+                              </View>
+                              <Skeleton style={{ height: 18, width: 18, borderRadius: 9 }} />
+                            </View>
+                          ))}
+                        </View>
+                      ) : visibleBlacklistSuggestions.length === 0 ? (
+                        <Text style={{ color: ui.sub }}>
+                          {blacklistQuery.trim()
+                            ? "No results"
+                            : (t("common.typeToSearch") || "Type to search")}
+                        </Text>
+                      ) : (
+                        <View style={{ gap: 10 }}>
+                          {visibleBlacklistSuggestions.map((it) => (
+                            <Pressable
+                              key={`${it.id}`}
+                              onPress={() => {
+                                setBlacklistTags((prev) => {
+                                  if (prev.some((t) => t.id === it.id)) return prev;
+                                  return [...prev, it];
+                                });
+                                setBlacklistQuery("");
+                                // Keep list stable; remove the selected item immediately,
+                                // then refresh the default list in background.
+                                setBlacklistSuggestions((prev) => prev.filter((x) => x.id !== it.id));
+                                setTimeout(() => runBlacklistSuggest("", blacklistType, { silent: true }), 0);
+                                if (Platform.OS !== "web") Keyboard.dismiss();
+                              }}
+                              style={({ pressed }) => [
+                                {
+                                  borderRadius: 14,
+                                  borderWidth: 1,
+                                  borderColor: ui.border,
+                                  backgroundColor: pressed ? "#ffffff0a" : ui.inputBg,
+                                  paddingHorizontal: 12,
+                                  paddingVertical: 10,
+                                  flexDirection: "row",
+                                  alignItems: "center",
+                                  gap: 10,
+                                },
+                              ]}
+                            >
+                              <View style={{ flex: 1 }}>
+                                <Text style={{ color: ui.text, fontWeight: "800" }} numberOfLines={1}>
+                                  {it.name}
+                                </Text>
+                                <Text style={{ color: ui.sub, marginTop: 2 }} numberOfLines={1}>
+                                  {String(it.type).toUpperCase()}{"  "}{it.count ?? 0}
+                                </Text>
+                              </View>
+                              <Feather name="plus" size={18} color={ui.accent} />
+                            </Pressable>
+                          ))}
+                        </View>
+                      )}
+                    </ScrollView>
+                  </View>
+
+                  <View style={{ flexDirection: "row", gap: 10, alignItems: "flex-start", marginTop: 10 }}>
+                    <View style={{ width: 120 }}>
+                      <FilterDropdown
+                        value={blacklistType}
+                        onChange={(v) => {
+                          setBlacklistType(v as TagType);
+                          setBlacklistSuggestions([]);
+                          const q = blacklistQuery.trim();
+                          setTimeout(
+                            () => runBlacklistSuggest(q, v as TagType, { silent: blacklistSuggestions.length > 0 }),
+                            0
+                          );
+                        }}
+                        options={blacklistTypeItems}
+                        keepOpen
+                        variant="outline"
+                        width={120}
+                        minWidth={120}
+                        maxWidth={120}
+                      />
+                    </View>
+
+                    <View style={{ flex: 1 }}>
+                      <TextInput
+                        ref={blacklistInputRef}
+                        value={blacklistQuery}
+                        onChangeText={setBlacklistQuery}
+                        editable={!blacklistLoading}
+                        placeholder={t("profile.blacklist.addPlaceholder")}
+                        placeholderTextColor={ui.sub + "88"}
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        onFocus={() => handleFocus(blacklistInputRef, 16)}
+                        style={[
+                          {
+                            height: 44,
+                            borderWidth: 1,
+                            borderRadius: 12,
+                            paddingHorizontal: 14,
+                            fontSize: 15,
+                            backgroundColor: ui.inputBg,
+                            borderColor: ui.border,
+                            color: ui.text,
+                          },
+                        ]}
+                      />
+                    </View>
+                  </View>
+                </View>
+
+                <View style={{ marginTop: 12 }}>
+                  {blacklistTags.length === 0 ? (
+                    <Text style={{ color: ui.sub }}>
+                      {t("profile.blacklist.empty") || "No blacklisted tags."}
+                    </Text>
+                  ) : (
+                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                      {blacklistTags.map((it) => (
+                        <Pressable
+                          key={`${it.id}`}
+                          onPress={() =>
+                            setBlacklistTags((prev) => prev.filter((x) => x.id !== it.id))
+                          }
+                          style={({ pressed }) => [
+                            {
+                              flexDirection: "row",
+                              alignItems: "center",
+                              gap: 6,
+                              paddingHorizontal: 10,
+                              paddingVertical: 6,
+                              borderRadius: 10,
+                              borderWidth: 1,
+                              borderColor: ui.border,
+                              backgroundColor: pressed ? "#ffffff10" : ui.chipBg,
+                            },
+                          ]}
+                        >
+                          <View>
+                            <Text style={{ color: ui.text, fontWeight: "700", fontSize: 13 }} numberOfLines={1}>
+                              {it.name}
+                            </Text>
+                            <Text style={{ color: ui.sub, fontSize: 10, marginTop: 1 }} numberOfLines={1}>
+                              {String(it.type).toUpperCase()}
+                            </Text>
+                          </View>
+                          <Feather name="x" size={14} color={ui.sub} />
+                        </Pressable>
+                      ))}
+                    </View>
+                  )}
+                </View>
+              </View>
+            ) : null}
+          </View>
 
           {/* Password section */}
           <View style={[s.card, { backgroundColor: ui.card }]}>
@@ -502,6 +1073,12 @@ export default function ProfileEditScreen() {
                   onChangeText={(v) => updateForm({ old_password: v })}
                   icon="key"
                   secureTextEntry
+                  uiSub={ui.sub}
+                  uiText={ui.text}
+                  uiBorder={ui.border}
+                  uiInputBg={ui.inputBg}
+                  inputRef={oldPassRef}
+                  onFocus={() => handleFocus(oldPassRef)}
                 />
                 <InputField
                   label={t("profile.edit.newPassword")}
@@ -509,6 +1086,12 @@ export default function ProfileEditScreen() {
                   onChangeText={(v) => updateForm({ new_password1: v })}
                   icon="lock"
                   secureTextEntry
+                  uiSub={ui.sub}
+                  uiText={ui.text}
+                  uiBorder={ui.border}
+                  uiInputBg={ui.inputBg}
+                  inputRef={newPass1Ref}
+                  onFocus={() => handleFocus(newPass1Ref)}
                 />
                 <InputField
                   label={t("profile.edit.newPasswordAgain")}
@@ -516,45 +1099,18 @@ export default function ProfileEditScreen() {
                   onChangeText={(v) => updateForm({ new_password2: v })}
                   icon="lock"
                   secureTextEntry
+                  uiSub={ui.sub}
+                  uiText={ui.text}
+                  uiBorder={ui.border}
+                  uiInputBg={ui.inputBg}
+                  inputRef={newPass2Ref}
+                  onFocus={() => handleFocus(newPass2Ref)}
                 />
               </View>
             )}
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
-
-      {/* Sticky save bar */}
-      <View
-        style={[
-          s.bottomBar,
-          {
-            backgroundColor: ui.bg + "f0",
-            paddingBottom: insets.bottom + 12,
-            borderTopColor: ui.border,
-          },
-        ]}
-      >
-        <Pressable
-          onPress={handleSubmit}
-          disabled={saving}
-          style={({ pressed }) => [
-            s.saveBtn,
-            {
-              backgroundColor: ui.accent,
-              opacity: saving ? 0.7 : pressed ? 0.85 : 1,
-            },
-          ]}
-        >
-          {saving ? (
-            <ActivityIndicator size="small" color="#fff" />
-          ) : (
-            <>
-              <Feather name="check" size={18} color="#fff" />
-              <Text style={s.saveBtnText}>{t("common.save")}</Text>
-            </>
-          )}
-        </Pressable>
-      </View>
     </View>
   );
 }
@@ -639,25 +1195,7 @@ const s = StyleSheet.create({
   passwordToggle: { flexDirection: "row", alignItems: "center", gap: 12 },
   passwordToggleText: { fontWeight: "700", fontSize: 15, flex: 1 },
 
-  // Bottom bar
-  bottomBar: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    borderTopWidth: StyleSheet.hairlineWidth,
-  },
-  saveBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    height: 48,
-    borderRadius: 14,
-  },
-  saveBtnText: { color: "#fff", fontWeight: "700", fontSize: 16 },
+  // Bottom bar removed (save is in top-right)
 
   errorCard: {
     borderRadius: 18,
