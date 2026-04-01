@@ -15,7 +15,9 @@
     "read": "Читать",
     "readAgain": "Читать снова",
     "removeDownload": "Удалить загрузку",
-    "pages": "Количество страниц"
+    "removeDownloadConfirm": "Удалить эту скачанную книгу с устройства?",
+    "pages": "Количество страниц",
+    "showAll": "Показать всё"
   },
   "commentComposer": {
     "placeholder": "Написать комментарий…",
@@ -63,6 +65,11 @@
   },
   "comments": {
     "title": "Комментарии",
+    "totalCount": "{count} всего",
+    "sort": {
+      "newest": "Сначала новые",
+      "oldest": "Сначала старые"
+    },
     "menu": {
       "translate": "Перевести комментарий",
       "showOriginal": "Показать оригинал",

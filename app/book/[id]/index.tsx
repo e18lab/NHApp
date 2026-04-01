@@ -1,6 +1,7 @@
 import type { Book } from "@/api/nhappApi/types";
 import { getRandomGalleryId, getGallery, initCdn } from "@/api/v2";
 import { galleryToBook } from "@/api/v2/compat";
+import { loadBookFromLocal } from "@/api/nhappApi/localBook";
 import LoadingSpinner from "@/components/LoadingSpinner";
 import PageItem, { GAP } from "@/components/book/PageItem";
 import { useFilterTags } from "@/context/TagFilterContext";
@@ -94,6 +95,27 @@ export default function BookScreen() {
   const dlUi = dl || isGlobalDownloadingThis;
   const prUi = dl ? pr : isGlobalDownloadingThis ? dlSnap.progress : 0;
 
+  // If the book finished downloading elsewhere, refresh local state immediately.
+  useEffect(() => {
+    if (!book?.id) return;
+    if (!dlSnap.lastFinishedAt) return;
+    if (dlSnap.lastFinishedBookId !== book.id) return;
+    if (local) return;
+
+    let cancelled = false;
+    (async () => {
+      const bLocal = await loadBookFromLocal(book.id);
+      if (cancelled) return;
+      if (bLocal) {
+        setBook(bLocal);
+        setLocal(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [book?.id, dlSnap.lastFinishedAt, dlSnap.lastFinishedBookId, local, setBook, setLocal]);
+
   useEffect(() => { setListW(win.w); }, [win.w]);
 
   useEffect(() => {
@@ -124,50 +146,31 @@ export default function BookScreen() {
 
   const horizPad = Math.max(0, innerPadding - GAP / 2);
 
-  const headerEl = useMemo(() => {
-    if (!book) return null;
-    return (
-      <BookHeader
-        book={book}
-        containerW={listW || win.w}
-        pad={innerPadding}
-        wide={wide}
-        cols={cols}
-        cycleCols={cycleCols}
-        bookmarked={favorites.has(book.id)}
-        onToggleBookmark={() => toggleFav(book.id, !favorites.has(book.id))}
-        dl={dlUi}
-        pr={prUi}
-        local={local}
-        handleDownloadOrDelete={dlUi ? () => {} : handleDownloadOrDelete}
-        modeOf={modeOf}
-        onTagPress={(name: any) =>
-          router.push({ pathname: "/explore", params: { query: name, solo: "1" } })
-        }
-        win={win}
-        innerPadding={innerPadding}
-        cycle={cycle}
-        cancel={dl ? cancel : () => {}}
-        commentCount={allComments.length}
-      />
-    );
-  }, [
-    book,
-    listW,
-    win,
-    innerPadding,
-    wide,
-    cols,
-    dl,
-    pr,
-    local,
-    handleDownloadOrDelete,
-    modeOf,
-    router,
-    cycle,
-    allComments.length,
-    favorites,
-  ]);
+  const headerEl = !book ? null : (
+    <BookHeader
+      book={book}
+      containerW={listW || win.w}
+      pad={innerPadding}
+      wide={wide}
+      cols={cols}
+      cycleCols={cycleCols}
+      bookmarked={favorites.has(book.id)}
+      onToggleBookmark={() => toggleFav(book.id, !favorites.has(book.id))}
+      dl={dlUi}
+      pr={prUi}
+      local={local}
+      handleDownloadOrDelete={dlUi ? () => {} : handleDownloadOrDelete}
+      modeOf={modeOf}
+      onTagPress={(name: any) =>
+        router.push({ pathname: "/explore", params: { query: name, solo: "1" } })
+      }
+      win={win}
+      innerPadding={innerPadding}
+      cycle={cycle}
+      cancel={dl ? cancel : () => {}}
+      commentCount={allComments.length}
+    />
+  );
 
   const limitedPages = useMemo(() => {
     if (!book?.pages || showAllPages) return book?.pages || [];

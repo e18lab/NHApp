@@ -15,7 +15,9 @@
     "read": "Read",
     "readAgain": "Read again",
     "removeDownload": "Remove download",
-    "pages": "Pages count"
+    "removeDownloadConfirm": "Delete this downloaded book from device?",
+    "pages": "Pages count",
+    "showAll": "Show all"
   },
   "commentComposer": {
     "placeholder": "Write a comment…",
@@ -63,6 +65,11 @@
   },
   "comments": {
     "title": "Comments",
+    "totalCount": "{count} total",
+    "sort": {
+      "newest": "Newest first",
+      "oldest": "Oldest first"
+    },
     "menu": {
       "translate": "Translate comment",
       "showOriginal": "Show original",

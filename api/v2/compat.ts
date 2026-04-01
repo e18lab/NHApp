@@ -132,14 +132,16 @@ export function galleryRelatedToBook(r: GalleryRelated): Book {
 // ─── Comment → GalleryComment ─────────────────────────────────────────────────
 
 export function commentToGalleryComment(c: Comment): GalleryComment {
+  // Avatars are served from i*.nhentai.net CDN, not the main site
+  const avatarFull = resolveImageUrl(c.poster.avatar_url);
   const poster: ApiUser = {
     id: c.poster.id,
     username: c.poster.username,
     slug: c.poster.slug,
-    avatar_url: c.poster.avatar_url,
+    avatar_url: avatarFull,
     is_superuser: c.poster.is_superuser,
     is_staff: c.poster.is_staff,
-    avatar: c.poster.avatar_url,
+    avatar: avatarFull,
   };
   return {
     id: c.id,
@@ -148,7 +150,7 @@ export function commentToGalleryComment(c: Comment): GalleryComment {
     // v2 returns unix seconds; CommentCard's parseToMs handles both ms and seconds
     post_date: c.post_date,
     body: c.body,
-    avatar: c.poster.avatar_url,
+    avatar: avatarFull,
   };
 }
 

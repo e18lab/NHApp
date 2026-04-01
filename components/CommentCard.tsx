@@ -3,9 +3,7 @@ import { deleteComment } from "@/api/v2";
 import { useTheme } from "@/lib/ThemeContext";
 import { useI18n } from "@/lib/i18n/I18nContext";
 import { MaterialIcons } from "@expo/vector-icons";
-import {
-  formatDistanceToNowStrict
-} from "date-fns";
+import { formatDistanceToNowStrict } from "date-fns";
 import { enUS, ja, ru, zhCN } from "date-fns/locale";
 import * as Clipboard from "expo-clipboard";
 import { franc } from "franc-min";
@@ -24,6 +22,7 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
+
 type Props = {
   id?: number;
   body: string;
@@ -33,38 +32,108 @@ type Props = {
   avatar_url?: string;
   highlight?: boolean;
   mineLabel?: string;
+  /** Shown as a tappable book-link below the body (for use in profile screens) */
+  bookTitle?: string;
   onPress?: () => void;
   onPressAvatar?: () => void;
   onPressName?: () => void;
   onDelete?: (id?: number) => Promise<void> | void;
 };
+
+function absAvatar(u?: string | null): string | undefined {
+  if (!u) return undefined;
+  const s = String(u).trim();
+  if (!s) return undefined;
+  if (/^https?:\/\//.test(s)) return s;
+  if (s.startsWith("//")) return "https:" + s;
+  if (s.startsWith("/")) return "https://i1.nhentai.net" + s;
+  // bare relative path like "avatars/12345.png" — goes on image CDN
+  return "https://i1.nhentai.net/" + s;
+}
+
 const R = StyleSheet.create({
   wrap: {
-    borderRadius: 14,
-    padding: 12,
-    gap: 8,
-    borderWidth: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 0,
     position: "relative",
-    shadowColor: "#000",
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 2,
   },
-  header: { flexDirection: "row", alignItems: "center" },
-  nameTime: { flex: 1, marginLeft: 10, gap: 2 },
-  name: { fontWeight: "800", fontSize: 14 },
-  time: { fontSize: 12 },
-  badge: {
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    marginLeft: 8,
+  row: {
+    flexDirection: "row",
+    gap: 12,
   },
-  body: { fontSize: 14, lineHeight: 20 },
-  avatar: { width: 40, height: 40, borderRadius: 12, backgroundColor: "#0002" },
-  backdrop: { position: "absolute", left: 0, top: 0, right: 0, bottom: 0 },
+  avatarCol: {
+    width: 40,
+    alignItems: "center",
+    paddingTop: 1,
+  },
+  avatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 999,
+    backgroundColor: "#0002",
+  },
+  contentCol: {
+    flex: 1,
+  },
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    marginBottom: 5,
+    flexWrap: "wrap",
+  },
+  name: {
+    fontWeight: "700",
+    fontSize: 14,
+    letterSpacing: 0.1,
+  },
+  dot: {
+    fontSize: 13,
+    opacity: 0.35,
+  },
+  time: {
+    fontSize: 13,
+    fontWeight: "400",
+  },
+  body: {
+    fontSize: 15,
+    lineHeight: 22,
+    marginBottom: 8,
+  },
+  footerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  bookLink: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    flexShrink: 1,
+  },
+  bookLinkTxt: {
+    fontSize: 12,
+    fontWeight: "600",
+    flexShrink: 1,
+  },
+  translateBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingVertical: 2,
+  },
+  translateTxt: {
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  backdrop: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    right: 0,
+    bottom: 0,
+  },
   menu: {
     position: "absolute",
     borderRadius: 12,
@@ -72,6 +141,10 @@ const R = StyleSheet.create({
     paddingVertical: 4,
     paddingHorizontal: 4,
     elevation: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
   },
   menuItem: {
     paddingVertical: 10,
@@ -81,9 +154,8 @@ const R = StyleSheet.create({
     gap: 8,
     borderRadius: 10,
     overflow: "hidden",
-    marginVertical: 2,
+    marginVertical: 1,
   },
-  optsBtn: { padding: 6, marginLeft: 8, borderRadius: 12 },
   delBackdrop: {
     flex: 1,
     backgroundColor: "#0008",
@@ -109,6 +181,7 @@ const R = StyleSheet.create({
   delBtn: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10 },
   delBtnTxt: { fontWeight: "800" },
 });
+
 function parseToMs(ts?: number | string): number {
   if (!ts) return 0;
   if (typeof ts === "number") return ts > 1e12 ? ts : ts * 1000;
@@ -132,65 +205,45 @@ function parseToMs(ts?: number | string): number {
   }
   return 0;
 }
+
 function localeOf(lang: "en" | "ru" | "ja" | "zh") {
   return lang === "ru" ? ru : lang === "ja" ? ja : lang === "zh" ? zhCN : enUS;
 }
+
 function fmtTimeLocalized(
   ts?: number | string,
   lang: "en" | "ru" | "ja" | "zh" = "en"
 ): string {
   const ms = parseToMs(ts);
   if (!ms) return "";
-  const d = new Date(ms);
-  const loc = localeOf(lang);
-  return formatDistanceToNowStrict(d, { addSuffix: true, locale: loc });
+  return formatDistanceToNowStrict(new Date(ms), {
+    addSuffix: true,
+    locale: localeOf(lang),
+  });
 }
+
 function mapIso3ToMyMemory(iso3: string, text: string): string {
   const m: Record<string, string> = {
-    eng: "en",
-    rus: "ru",
-    zho: "zh-CN",
-    cmn: "zh-CN",
-    jpn: "ja",
-    kor: "ko",
-    spa: "es",
-    por: "pt",
-    fra: "fr",
-    deu: "de",
-    ita: "it",
-    ukr: "uk",
-    bel: "be",
-    pol: "pl",
-    nld: "nl",
-    swe: "sv",
-    fin: "fi",
-    dan: "da",
-    nor: "no",
-    ces: "cs",
-    slk: "sk",
-    slv: "sl",
-    hrv: "hr",
-    srp: "sr",
-    bul: "bg",
-    ron: "ro",
-    hun: "hu",
-    tur: "tr",
-    vie: "vi",
-    tha: "th",
-    ara: "ar",
-    heb: "he",
-    hin: "hi",
-    ind: "id",
-    fil: "tl",
-    tgl: "tl",
-    cat: "ca",
-    glg: "gl",
-    epo: "eo",
+    eng: "en", rus: "ru", zho: "zh-CN", cmn: "zh-CN", jpn: "ja", kor: "ko",
+    spa: "es", por: "pt", fra: "fr", deu: "de", ita: "it", ukr: "uk",
+    bel: "be", pol: "pl", nld: "nl", swe: "sv", fin: "fi", dan: "da",
+    nor: "no", ces: "cs", slk: "sk", slv: "sl", hrv: "hr", srp: "sr",
+    bul: "bg", ron: "ro", hun: "hu", tur: "tr", vie: "vi", tha: "th",
+    ara: "ar", heb: "he", hin: "hi", ind: "id", fil: "tl", tgl: "tl",
+    cat: "ca", glg: "gl", epo: "eo",
   };
   if (m[iso3]) return m[iso3];
-  const ascii = text && /^[\x00-\x7F]+$/.test(text);
-  return ascii ? "en" : "en";
+  return /^[\x00-\x7F]+$/.test(text ?? "") ? "en" : "en";
 }
+
+const MYMEMORY_ERROR_PHRASES = [
+  "QUERY LENGTH LIMIT EXCEDEED",
+  "MYMEMORY WARNING",
+  "YOU USED ALL AVAILABLE FREE TRANSLATIONS",
+  "PLEASE SELECT TWO DISTINCT LANGUAGES",
+  "INVALID LANGUAGE PAIR",
+];
+
 async function translateViaMyMemory(text: string, to = "en"): Promise<string> {
   const iso3 = franc(text || "", { minLength: 3 });
   const src = mapIso3ToMyMemory(iso3, text);
@@ -206,19 +259,50 @@ async function translateViaMyMemory(text: string, to = "en"): Promise<string> {
     if (s) parts.push(s);
     return parts;
   };
+
+  const fetchWithRetry = async (url: string, retries = 2): Promise<any> => {
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        const resp = await fetch(url);
+        const data = await resp.json();
+
+        const status = data?.responseStatus ?? resp.status;
+        const quotaDone = data?.quotaFinished === true;
+        const tt: string = data?.responseData?.translatedText ?? "";
+
+        if (quotaDone || status === 403 || status === 429) {
+          throw new Error("quota");
+        }
+        if (
+          !resp.ok ||
+          MYMEMORY_ERROR_PHRASES.some((e) => tt.toUpperCase().includes(e))
+        ) {
+          throw new Error("api_error");
+        }
+
+        return data;
+      } catch (err: any) {
+        if (err?.message === "quota" || err?.message === "api_error") throw err;
+        if (attempt < retries) {
+          await new Promise((r) => setTimeout(r, 600 * (attempt + 1)));
+        } else {
+          throw err;
+        }
+      }
+    }
+  };
+
   const out: string[] = [];
   for (const p of chunk(text)) {
-    const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(
-      p
-    )}&langpair=${encodeURIComponent(src)}|${encodeURIComponent(to)}`;
-    const resp = await fetch(url);
-    const data = await resp.json();
-    const tt = data?.responseData?.translatedText;
-    out.push(typeof tt === "string" && tt.length ? tt : p);
-    await new Promise((r) => setTimeout(r, 250));
+    const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(p)}&langpair=${encodeURIComponent(src)}|${encodeURIComponent(to)}`;
+    const data = await fetchWithRetry(url);
+    const tt: string = data?.responseData?.translatedText ?? "";
+    out.push(tt.length ? tt : p);
+    await new Promise((r) => setTimeout(r, 400));
   }
   return out.join(" ");
 }
+
 export default function CommentCard({
   id,
   body,
@@ -227,7 +311,7 @@ export default function CommentCard({
   avatar,
   avatar_url,
   highlight,
-  mineLabel,
+  bookTitle,
   onPress,
   onPressAvatar,
   onPressName,
@@ -237,6 +321,7 @@ export default function CommentCard({
   const { width: winW, height: winH } = useWindowDimensions();
   const { t, resolved } = useI18n();
   const lang = (resolved ?? "en") as "en" | "ru" | "ja" | "zh";
+
   const ui = useMemo(
     () => ({
       text: colors.txt,
@@ -248,81 +333,67 @@ export default function CommentCard({
       menuTxt: colors.menuTxt ?? colors.txt,
       menuBorder: colors.iconOnSurface + "22",
       ripple: colors.accent + "12",
-      backdrop: "#0008",
     }),
     [colors]
   );
-  const avatarSrc =
-    avatar ||
-    avatar_url ||
-    (poster?.avatar as string | undefined) ||
-    (poster?.avatar_url as string | undefined) ||
-    "";
+
+  // Resolve avatar to absolute URL
+  const avatarSrc = useMemo(() => {
+    return (
+      absAvatar(avatar) ||
+      absAvatar(avatar_url) ||
+      absAvatar(poster?.avatar as string | undefined) ||
+      absAvatar(poster?.avatar_url as string | undefined) ||
+      ""
+    );
+  }, [avatar, avatar_url, poster]);
+
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState({ x: 0, y: 0, w: 0, h: 0 });
-  const btnRef = useRef<View>(null);
+  const menuBtnRef = useRef<View>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [translated, setTranslated] = useState<string | null>(null);
   const [showOriginal, setShowOriginal] = useState(false);
   const [busy, setBusy] = useState(false);
+
   useEffect(() => {
     setTranslated(null);
     setShowOriginal(false);
   }, [body]);
-  const detectedIso3 = useMemo(
-    () => franc(body || "", { minLength: 3 }),
-    [body]
-  );
+
+  const detectedIso3 = useMemo(() => franc(body || "", { minLength: 3 }), [body]);
   const targetLangMM = lang === "zh" ? "zh-CN" : lang;
   const sourceMM = mapIso3ToMyMemory(detectedIso3, body);
-  const canTranslateBase =
-    (body?.trim().length ?? 0) > 2 && sourceMM !== targetLangMM;
+
+  // Only show translate if the comment language differs from the UI language
+  const canTranslate = (body?.trim().length ?? 0) > 2 && sourceMM !== targetLangMM;
+  const showTranslateFooter = canTranslate || !!translated;
+
   const displayBody = translated && !showOriginal ? translated : body;
+  const timeLabel = fmtTimeLocalized(post_date, lang);
+
   const openMenu = () => {
-    btnRef.current?.measureInWindow?.((x, y, w, h) => {
+    menuBtnRef.current?.measureInWindow?.((x, y, w, h) => {
       setMenuAnchor({ x, y, w, h });
       setMenuOpen(true);
     });
   };
-  const handleCardPress = () => {
-    if (menuOpen) {
-      setMenuOpen(false);
-      return;
-    }
-    onPress?.();
-  };
+
   const profilePressRef = useRef(false);
-  const handleAvatarPress = (e?: any) => {
-    e?.stopPropagation?.();
+  const handleAvatarPress = () => {
     if (profilePressRef.current) return;
     profilePressRef.current = true;
-    if (onPressAvatar) {
-      onPressAvatar();
-    } else if (onPressName) {
-      onPressName();
-    } else {
-      onPress?.();
-    }
-    setTimeout(() => {
-      profilePressRef.current = false;
-    }, 500);
+    (onPressAvatar ?? onPressName)?.();
+    setTimeout(() => { profilePressRef.current = false; }, 500);
   };
-  const handleNamePress = (e?: any) => {
-    e?.stopPropagation?.();
+  const handleNamePress = () => {
     if (profilePressRef.current) return;
     profilePressRef.current = true;
-    if (onPressName) {
-      onPressName();
-    } else if (onPressAvatar) {
-      onPressAvatar();
-    } else {
-      onPress?.();
-    }
-    setTimeout(() => {
-      profilePressRef.current = false;
-    }, 500);
+    (onPressName ?? onPressAvatar)?.();
+    setTimeout(() => { profilePressRef.current = false; }, 500);
   };
+
   const doTranslate = async () => {
     try {
       setBusy(true);
@@ -336,13 +407,15 @@ export default function CommentCard({
       setMenuOpen(false);
     }
   };
+
   const doToggleOriginal = () => {
     setShowOriginal((v) => !v);
     setMenuOpen(false);
   };
+
   const doCopy = async () => {
     try {
-      await Clipboard.setStringAsync(body || "");
+      await Clipboard.setStringAsync(displayBody || "");
       if (Platform.OS === "android") {
         ToastAndroid.show(t("comments.copied"), ToastAndroid.SHORT);
       }
@@ -351,11 +424,13 @@ export default function CommentCard({
       setMenuOpen(false);
     }
   };
+
   const askDelete = () => {
     setMenuOpen(false);
     if (!id) return;
     setDeleteOpen(true);
   };
+
   const confirmDelete = async () => {
     if (!id) return;
     try {
@@ -372,12 +447,14 @@ export default function CommentCard({
       setDeleteBusy(false);
     }
   };
+
   const estimatedMenuHeight = 48 * 3 + 12;
   const menuTop = Math.min(
     Math.max(8, menuAnchor.y + menuAnchor.h + 6),
     winH - estimatedMenuHeight - 8
   );
   const menuRight = Math.max(8, winW - (menuAnchor.x + menuAnchor.w));
+
   const MenuItem = ({
     icon,
     label,
@@ -391,7 +468,7 @@ export default function CommentCard({
   }) => (
     <Pressable
       android_ripple={{ color: ui.ripple, borderless: false }}
-      style={R.menuItem}
+      style={[R.menuItem, { cursor: "pointer" } as any]}
       onPress={onPress}
       disabled={disabled}
     >
@@ -403,36 +480,38 @@ export default function CommentCard({
       <Text style={{ color: ui.menuTxt, fontWeight: "700" }}>{label}</Text>
     </Pressable>
   );
-  const timeLabel = fmtTimeLocalized(post_date, lang);
+
+  const translateLabel = busy
+    ? "…"
+    : translated
+      ? showOriginal
+        ? t("comments.menu.showTranslation")
+        : t("comments.menu.showOriginal")
+      : t("comments.menu.translate");
+
+  const hasProfileAction = !!(onPressAvatar || onPressName);
+
   return (
     <Animated.View>
       <Pressable
-        onPress={handleCardPress}
         onLongPress={openMenu}
-        android_ripple={{
-          color: ui.ripple,
-          borderless: false,
-          foreground: true,
-        }}
-        style={[
-          R.wrap,
-          {
-            backgroundColor: ui.card,
-            borderColor: highlight ? ui.accent : ui.borderDim,
-            borderRadius: 14,
-            overflow: "hidden",
-          },
-        ]}
+        android_ripple={{ color: ui.ripple, borderless: false, foreground: true }}
+        style={[R.wrap, { cursor: "default" } as any]}
       >
+        {/* Context menu */}
         <Modal
-        statusBarTranslucent
+          statusBarTranslucent
           visible={menuOpen}
           transparent
           animationType="fade"
           onRequestClose={() => setMenuOpen(false)}
         >
-          <Pressable style={R.backdrop} onPress={() => setMenuOpen(false)} />
+          <Pressable
+            style={[R.backdrop, { cursor: "default" } as any]}
+            onPress={() => setMenuOpen(false)}
+          />
           <View
+            ref={menuBtnRef}
             style={[
               R.menu,
               {
@@ -443,7 +522,7 @@ export default function CommentCard({
               },
             ]}
           >
-            {canTranslateBase && !translated && (
+            {canTranslate && !translated && (
               <MenuItem
                 icon="translate"
                 label={t("comments.menu.translate")}
@@ -454,11 +533,7 @@ export default function CommentCard({
             {translated && (
               <MenuItem
                 icon={showOriginal ? "translate" : "description"}
-                label={
-                  showOriginal
-                    ? t("comments.menu.showTranslation")
-                    : t("comments.menu.showOriginal")
-                }
+                label={showOriginal ? t("comments.menu.showTranslation") : t("comments.menu.showOriginal")}
                 onPress={doToggleOriginal}
               />
             )}
@@ -476,116 +551,137 @@ export default function CommentCard({
             )}
           </View>
         </Modal>
-        <View style={R.header}>
-          <Pressable
-            onPress={handleAvatarPress}
-            hitSlop={4}
-          >
-            {avatarSrc ? (
-              <Image source={{ uri: avatarSrc }} style={R.avatar} />
-            ) : (
-              <View style={[R.avatar, { backgroundColor: ui.borderDim }]} />
+
+        {/* Layout */}
+        <View style={R.row}>
+          {/* Avatar */}
+          <View style={R.avatarCol}>
+            <Pressable
+              onPress={hasProfileAction ? handleAvatarPress : undefined}
+              hitSlop={6}
+              style={{ cursor: hasProfileAction ? "pointer" : "default" } as any}
+            >
+              {avatarSrc ? (
+                <Image
+                  source={{ uri: avatarSrc }}
+                  style={R.avatar}
+                  onError={() => {}}
+                />
+              ) : (
+                <View style={[R.avatar, { backgroundColor: ui.borderDim }]} />
+              )}
+            </Pressable>
+          </View>
+
+          {/* Content */}
+          <View style={R.contentCol}>
+            {/* Header */}
+            <View style={R.headerRow}>
+              <Pressable
+                onPress={hasProfileAction ? handleNamePress : undefined}
+                hitSlop={4}
+                style={{ cursor: hasProfileAction ? "pointer" : "default" } as any}
+              >
+                <Text style={[R.name, { color: ui.text }]} numberOfLines={1}>
+                  {poster?.username || "user"}
+                </Text>
+              </Pressable>
+              {!!timeLabel && (
+                <>
+                  <Text style={[R.dot, { color: ui.sub }]}>·</Text>
+                  <Text style={[R.time, { color: ui.sub }]} numberOfLines={1}>
+                    {timeLabel}
+                  </Text>
+                </>
+              )}
+            </View>
+
+            <Text style={[R.body, { color: ui.text }]} selectable>
+              {displayBody}
+            </Text>
+
+            {/* Footer: translate + optional book link */}
+            {(showTranslateFooter || !!bookTitle) && (
+              <View style={R.footerRow}>
+                {showTranslateFooter && (
+                  <Pressable
+                    style={[R.translateBtn, { cursor: "pointer" } as any]}
+                    onPress={translated ? doToggleOriginal : doTranslate}
+                    disabled={busy}
+                    hitSlop={8}
+                  >
+                    {busy ? (
+                      <ActivityIndicator size="small" color={ui.sub} />
+                    ) : (
+                      <MaterialIcons name="translate" size={13} color={ui.sub} />
+                    )}
+                    <Text style={[R.translateTxt, { color: ui.sub }]}>
+                      {translateLabel}
+                    </Text>
+                  </Pressable>
+                )}
+                {!!bookTitle && !!onPress && (
+                  <Pressable
+                    style={[R.bookLink, { cursor: "pointer" } as any]}
+                    onPress={onPress}
+                    hitSlop={8}
+                  >
+                    <MaterialIcons name="auto-stories" size={13} color={ui.accent} />
+                    <Text
+                      style={[R.bookLinkTxt, { color: ui.accent }]}
+                      numberOfLines={1}
+                    >
+                      {bookTitle}
+                    </Text>
+                  </Pressable>
+                )}
+              </View>
             )}
-          </Pressable>
-          <Pressable
-            style={{ flex: 1, marginLeft: 10 }}
-            onPress={handleNamePress}
-            hitSlop={4}
-          >
-            <View style={R.nameTime}>
-              <Text style={[R.name, { color: ui.text }]} numberOfLines={1}>
-                {poster?.username || "user"}
-              </Text>
-              <Text style={[R.time, { color: ui.sub }]}>{timeLabel}</Text>
-            </View>
-          </Pressable>
-          {translated && !showOriginal && (
-            <View
-              style={[
-                R.badge,
-                { borderColor: ui.ripple, backgroundColor: ui.ripple + "12" },
-              ]}
-            >
-              <Text
-                style={{ color: ui.accent, fontWeight: "800", fontSize: 12 }}
-              >
-                {t("comments.badge.translated")}
-              </Text>
-            </View>
-          )}
-          {highlight && (
-            <View
-              style={[
-                R.badge,
-                { borderColor: ui.accent, backgroundColor: ui.accent + "12" },
-              ]}
-            >
-              <Text
-                style={{ color: ui.accent, fontWeight: "800", fontSize: 12 }}
-              >
-                {mineLabel || t("comments.mine")}
-              </Text>
-            </View>
-          )}
-          <Pressable
-            ref={btnRef}
-            onPress={openMenu}
-            hitSlop={8}
-            style={[R.optsBtn, { backgroundColor: "transparent" }]}
-            android_ripple={{ color: ui.ripple, borderless: true }}
-          >
-            <MaterialIcons name="more-vert" size={20} color={ui.sub} />
-          </Pressable>
+          </View>
         </View>
-        <Text style={[R.body, { color: ui.text }]} selectable>
-          {displayBody}
-        </Text>
       </Pressable>
+
+      {/* Delete confirmation */}
       <Modal
-      statusBarTranslucent
+        statusBarTranslucent
         visible={deleteOpen}
         transparent
         animationType="fade"
         onRequestClose={() => setDeleteOpen(false)}
       >
-        <Pressable style={R.delBackdrop} onPress={() => setDeleteOpen(false)}>
+        <Pressable
+          style={[R.delBackdrop, { cursor: "default" } as any]}
+          onPress={() => setDeleteOpen(false)}
+        >
           <Pressable
             onPress={(e) => e.stopPropagation()}
-            style={[
-              R.delCard,
-              { backgroundColor: ui.card, borderColor: ui.borderDim },
-            ]}
+            style={[R.delCard, { backgroundColor: ui.card, borderColor: ui.borderDim }]}
           >
             <Text style={[R.delTitle, { color: ui.text }]}>
               {t("comments.delete.title")}
             </Text>
-            <View
-              style={[
-                R.delPreview,
-                { backgroundColor: ui.card, borderColor: ui.borderDim },
-              ]}
-            >
-              <View style={R.header}>
+            <View style={[R.delPreview, { backgroundColor: ui.card, borderColor: ui.borderDim }]}>
+              <View style={[R.row, { marginBottom: 8 }]}>
                 {avatarSrc ? (
                   <Image source={{ uri: avatarSrc }} style={R.avatar} />
                 ) : (
                   <View style={[R.avatar, { backgroundColor: ui.borderDim }]} />
                 )}
-                <View style={R.nameTime}>
+                <View style={{ flex: 1, justifyContent: "center", marginLeft: 10 }}>
                   <Text style={[R.name, { color: ui.text }]} numberOfLines={1}>
                     {poster?.username || "user"}
                   </Text>
-                  <Text style={[R.time, { color: ui.sub }]}>{timeLabel}</Text>
+                  {!!timeLabel && (
+                    <Text style={[R.time, { color: ui.sub }]}>{timeLabel}</Text>
+                  )}
                 </View>
               </View>
-              <Text style={[R.body, { color: ui.text, marginTop: 8 }]}>
-                {displayBody}
-              </Text>
+              <Text style={[R.body, { color: ui.text }]}>{displayBody}</Text>
             </View>
             <View style={R.delRow}>
               <Pressable
                 onPress={() => setDeleteOpen(false)}
-                style={[R.delBtn, { backgroundColor: ui.borderDim }]}
+                style={[R.delBtn, { backgroundColor: ui.borderDim, cursor: "pointer" } as any]}
                 android_ripple={{ color: ui.ripple, borderless: false }}
               >
                 <Text style={[R.delBtnTxt, { color: ui.text }]}>
@@ -595,10 +691,7 @@ export default function CommentCard({
               <Pressable
                 disabled={deleteBusy}
                 onPress={confirmDelete}
-                style={[
-                  R.delBtn,
-                  { backgroundColor: ui.accent, opacity: deleteBusy ? 0.8 : 1 },
-                ]}
+                style={[R.delBtn, { backgroundColor: ui.accent, opacity: deleteBusy ? 0.8 : 1, cursor: "pointer" } as any]}
                 android_ripple={{ color: "#ffffff22", borderless: false }}
               >
                 {deleteBusy ? (

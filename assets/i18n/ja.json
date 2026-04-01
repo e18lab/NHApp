@@ -15,7 +15,9 @@
     "read": "読む",
     "readAgain": "もう一度読む",
     "removeDownload": "ダウンロードを削除",
-    "pages": "ページ数"
+    "removeDownloadConfirm": "このダウンロード済みの本を端末から削除しますか？",
+    "pages": "ページ数",
+    "showAll": "すべて表示"
   },
   "commentComposer": {
     "placeholder": "コメントを書く…",
@@ -63,6 +65,11 @@
   },
   "comments": {
     "title": "コメント",
+    "totalCount": "合計 {count}",
+    "sort": {
+      "newest": "新しい順",
+      "oldest": "古い順"
+    },
     "menu": {
       "translate": "コメントを翻訳",
       "showOriginal": "原文を表示",

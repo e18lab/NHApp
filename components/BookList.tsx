@@ -325,16 +325,14 @@ export default function BookList<T extends Book = Book>({
     ({ item, index }) => {
       const isLastInRow = !horizontal && (index + 1) % cols === 0;
       const isLastHoriz = horizontal && index === uniqueData.length - 1;
-      const merged = !horizontal ? mergeEnriched(item, enrichedById[item.id]) : item;
+      const merged = mergeEnriched(item, enrichedById[item.id]);
 
-      if (!horizontal) {
-        const anyMerged: any = merged as any;
-        const hasAnyTags =
-          (Array.isArray(anyMerged?.tags) && anyMerged.tags.length > 0) ||
-          (Array.isArray(anyMerged?.artists) && anyMerged.artists.length > 0) ||
-          (Array.isArray(anyMerged?.languages) && anyMerged.languages.length > 0);
-        if (!hasAnyTags) requestEnrich(item.id);
-      }
+      const anyMerged: any = merged as any;
+      const hasAnyTags =
+        (Array.isArray(anyMerged?.tags) && anyMerged.tags.length > 0) ||
+        (Array.isArray(anyMerged?.artists) && anyMerged.artists.length > 0) ||
+        (Array.isArray(anyMerged?.languages) && anyMerged.languages.length > 0);
+      if (!hasAnyTags) requestEnrich(item.id);
 
       return (
         <View
@@ -439,7 +437,7 @@ export default function BookList<T extends Book = Book>({
         style={[styles.container, { backgroundColor: themeBg, position: "relative" }]}
       >
         <ScrollView
-          ref={listRef as React.RefObject<ScrollView>}
+          ref={listRef as unknown as React.RefObject<ScrollView>}
           style={webGridStyles.scroll}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />

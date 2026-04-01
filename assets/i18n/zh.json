@@ -15,7 +15,9 @@
     "read": "阅读",
     "readAgain": "再读一次",
     "removeDownload": "删除下载",
-    "pages": "页数"
+    "removeDownloadConfirm": "要从设备中删除这本已下载的书吗？",
+    "pages": "页数",
+    "showAll": "显示全部"
   },
   "commentComposer": {
     "placeholder": "写评论…",
@@ -63,6 +65,11 @@
   },
   "comments": {
     "title": "评论",
+    "totalCount": "共 {count} 条",
+    "sort": {
+      "newest": "最新优先",
+      "oldest": "最旧优先"
+    },
     "menu": {
       "translate": "翻译评论",
       "showOriginal": "显示原文",

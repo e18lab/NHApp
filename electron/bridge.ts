@@ -88,6 +88,7 @@ export async function getBannerAssetDataUrls(): Promise<{ bg: string | null; ico
 
 export async function showMessageBox(options: ElectronMessageBoxOptions): Promise<ElectronMessageBoxReturnValue | null> {
   if (!isElectron()) return null;
+  if (typeof window.electron?.showMessageBox !== 'function') return null;
   try {
     return await window.electron!.showMessageBox(options);
   } catch (error) {

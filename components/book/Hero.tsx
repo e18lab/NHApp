@@ -17,10 +17,11 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Clipboard from "expo-clipboard";
 import ExpoImage from "@/components/ExpoImageCompat";
 import { LinearGradient } from "expo-linear-gradient";
-import { openReaderWindow, isElectron } from "@/electron/bridge";
+import { openReaderWindow, isElectron, showMessageBox } from "@/electron/bridge";
 import { useFocusEffect, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  Alert,
   FlatList,
   Modal,
   Pressable,
@@ -484,13 +485,48 @@ export default function Hero({
       return (
         <View style={{ borderRadius: 20, overflow: "hidden" }}>
           <Pressable
-            onPress={handleDownloadOrDelete}
+            onPress={async () => {
+              const title = t("book.removeDownload") || "Remove download";
+              const message =
+                t("book.removeDownloadConfirm") ||
+                "Delete this downloaded book from device?";
+
+              if (isElectron()) {
+                const res = await showMessageBox({
+                  type: "warning",
+                  title,
+                  message,
+                  buttons: [t("common.cancel") || "Cancel", t("common.delete") || "Delete"],
+                  defaultId: 0,
+                  cancelId: 0,
+                });
+                if (res) {
+                  if (res.response === 1) handleDownloadOrDelete();
+                  return;
+                }
+
+                if (typeof window !== "undefined" && typeof window.confirm === "function") {
+                  if (window.confirm(`${title}\n\n${message}`)) handleDownloadOrDelete();
+                  return;
+                }
+                return;
+              }
+
+              Alert.alert(title, message, [
+                { text: t("common.cancel") || "Cancel", style: "cancel" },
+                {
+                  text: t("common.delete") || "Delete",
+                  style: "destructive",
+                  onPress: handleDownloadOrDelete,
+                },
+              ]);
+            }}
             style={[styles.circleBtn, { backgroundColor: colors.tagBg }]}
             android_ripple={{ color: colors.accent + "22", borderless: false }}
             accessibilityRole="button"
             accessibilityLabel={t("book.removeDownload")}
           >
-            <Feather name="trash-2" size={20} color={colors.accent} />
+            <Feather name="check-circle" size={20} color={colors.accent} />
           </Pressable>
         </View>
       );

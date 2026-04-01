@@ -679,13 +679,8 @@ export default function UserProfileScreen() {
                 }
                 avatar={resolvedAvatarUrl}
                 highlight={false}
+                bookTitle={c.gallery_title}
                 onPress={() =>
-                  router.push({
-                    pathname: "/book/[id]",
-                    params: { id: String(c.gallery_id) },
-                  })
-                }
-                onPressName={() =>
                   router.push({
                     pathname: "/book/[id]",
                     params: { id: String(c.gallery_id) },

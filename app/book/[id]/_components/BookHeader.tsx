@@ -20,11 +20,12 @@ import { Feather, FontAwesome, Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Clipboard from "expo-clipboard";
 import { LinearGradient } from "expo-linear-gradient";
-import { isElectron, openReaderWindow } from "@/electron/bridge";
+import { isElectron, openReaderWindow, showMessageBox } from "@/electron/bridge";
 import { useFocusEffect, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Modal,
   Pressable,
@@ -148,6 +149,7 @@ export default function BookHeader({
   const router = useRouter();
   const me = useOnlineMe();
   const meId = me?.id ?? null;
+  const gold = "#F5C542";
 
   const coverAR = book.coverW && book.coverH ? book.coverW / book.coverH : 3 / 4;
 
@@ -206,8 +208,11 @@ export default function BookHeader({
   }, [book.id, readBtn.page, router]);
 
   const openComments = useCallback(() => {
-    router.push({ pathname: "/book/[id]/comments", params: { id: String(book.id) } });
-  }, [book.id, router]);
+    router.push({
+      pathname: "/book/[id]/comments",
+      params: { id: String(book.id), title: String(book.title?.pretty ?? "") },
+    });
+  }, [book.id, book.title?.pretty, router]);
 
   // ── Tags ──────────────────────────────────────────────────────────────────
 
@@ -330,23 +335,110 @@ export default function BookHeader({
 
   /** [🔖] [❤️] [💬] [⬇️] pill buttons row */
   const ActionPills = () => (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 16 }} contentContainerStyle={{ gap: 8, paddingRight: 4, alignItems: "center" }}>
-      {/* Bookmark — local AsyncStorage */}
+    <View style={[s.actionsRow, { marginTop: 16 }]}>
+      {/* Download — first */}
+      {!dl && !local && (
+        <Pressable
+          onPress={handleDownloadOrDelete}
+          style={[s.pill, { borderColor: colors.metaText + "50" }]}
+          android_ripple={{ color: colors.accent + "22", borderless: false }}
+          accessibilityLabel={t("download") || "Download"}
+        >
+          <Feather name="download" size={15} color={colors.metaText} />
+        </Pressable>
+      )}
+      {!dl && local && (
+        <Pressable
+          onPress={async () => {
+            const title = t("book.removeDownload") || "Remove download";
+            const message =
+              t("book.removeDownloadConfirm") ||
+              "Delete this downloaded book from device?";
+
+            if (isElectron()) {
+              const res = await showMessageBox({
+                type: "warning",
+                title,
+                message,
+                buttons: [t("common.cancel") || "Cancel", t("common.delete") || "Delete"],
+                defaultId: 0,
+                cancelId: 0,
+              });
+              if (res) {
+                if (res.response === 1) handleDownloadOrDelete();
+                return;
+              }
+
+              if (typeof window !== "undefined" && typeof window.confirm === "function") {
+                if (window.confirm(`${title}\n\n${message}`)) handleDownloadOrDelete();
+                return;
+              }
+              return;
+            }
+
+            Alert.alert(title, message, [
+              { text: t("common.cancel") || "Cancel", style: "cancel" },
+              {
+                text: t("common.delete") || "Delete",
+                style: "destructive",
+                onPress: handleDownloadOrDelete,
+              },
+            ]);
+          }}
+          style={[s.pill, { borderColor: colors.accent, backgroundColor: colors.accent + "14" }]}
+          android_ripple={{ color: colors.accent + "22", borderless: false }}
+          accessibilityLabel={t("book.removeDownload") || "Remove download"}
+        >
+          <Feather name="trash-2" size={15} color={colors.accent} />
+        </Pressable>
+      )}
+      {dl && (
+        <Pressable
+          onPress={cancel}
+          style={[s.pill, { borderColor: colors.accent, backgroundColor: colors.accent + "12" }]}
+          android_ripple={{ color: colors.accent + "22", borderless: false }}
+          accessibilityLabel={t("cancel") || "Cancel"}
+        >
+          <View style={s.ringWrap}>
+            <Ring progress={pr} size={20} />
+            <View style={s.ringInner}>
+              <Feather name="x" size={10} color={colors.accent} />
+            </View>
+          </View>
+        </Pressable>
+      )}
+
+      {/* Bookmark */}
       <Pressable
         onPress={onToggleBookmark}
-        style={[s.pill, {
-          borderColor: bookmarked ? colors.accent : colors.metaText + "50",
-          backgroundColor: bookmarked ? colors.accent + "1A" : "transparent",
-        }]}
+        style={[
+          s.pill,
+          !wide && s.pillStretchMobile,
+          {
+            borderColor: bookmarked ? gold : colors.metaText + "50",
+            backgroundColor: bookmarked ? gold + "1A" : "transparent",
+          },
+        ]}
         android_ripple={{ color: colors.accent + "22", borderless: false }}
       >
-        <Feather name="bookmark" size={15} color={bookmarked ? colors.accent : colors.metaText} />
-        <Text style={[s.pillTxt, { color: bookmarked ? colors.accent : colors.metaText }]}>
-          {bookmarked ? "В закладках" : "Закладки"}
-        </Text>
+        <Feather name="bookmark" size={15} color={bookmarked ? gold : colors.metaText} />
       </Pressable>
 
-      {/* Online like — only when authenticated */}
+      {/* Comments */}
+      <Pressable
+        onPress={openComments}
+        style={[s.pill, { borderColor: colors.metaText + "50" }]}
+        android_ripple={{ color: colors.accent + "22", borderless: false }}
+      >
+        <Feather name="message-square" size={15} color={colors.metaText} />
+        {commentCount > 0 && (
+          <Text style={[s.pillTxt, { color: colors.metaText }]}>
+            {fmtNum(commentCount)}
+          </Text>
+        )}
+      </Pressable>
+
+      {/* Online like — last, only when authenticated */}
       {!!meId && (
         <Pressable
           onPress={toggleOnlineLike}
@@ -371,58 +463,7 @@ export default function BookHeader({
           </Text>
         </Pressable>
       )}
-
-      {/* Comments */}
-      <Pressable
-        onPress={openComments}
-        style={[s.pill, { borderColor: colors.metaText + "50" }]}
-        android_ripple={{ color: colors.accent + "22", borderless: false }}
-      >
-        <Feather name="message-square" size={15} color={colors.metaText} />
-        {commentCount > 0 && (
-          <Text style={[s.pillTxt, { color: colors.metaText }]}>
-            {fmtNum(commentCount)}
-          </Text>
-        )}
-      </Pressable>
-
-      {/* Download — circle button in the same row */}
-      {!dl && !local && (
-        <Pressable
-          onPress={handleDownloadOrDelete}
-          style={[s.pill, { borderColor: colors.metaText + "50" }]}
-          android_ripple={{ color: colors.accent + "22", borderless: false }}
-          accessibilityLabel={t("download") || "Download"}
-        >
-          <Feather name="download" size={15} color={colors.metaText} />
-        </Pressable>
-      )}
-      {!dl && local && (
-        <Pressable
-          onPress={handleDownloadOrDelete}
-          style={[s.pill, { borderColor: colors.accent, backgroundColor: colors.accent + "14" }]}
-          android_ripple={{ color: colors.accent + "22", borderless: false }}
-          accessibilityLabel={t("downloaded") || "Downloaded"}
-        >
-          <Feather name="hard-drive" size={15} color={colors.accent} />
-        </Pressable>
-      )}
-      {dl && (
-        <Pressable
-          onPress={cancel}
-          style={[s.pill, { borderColor: colors.accent, backgroundColor: colors.accent + "12" }]}
-          android_ripple={{ color: colors.accent + "22", borderless: false }}
-          accessibilityLabel={t("cancel") || "Cancel"}
-        >
-          <View style={s.ringWrap}>
-            <Ring progress={pr} size={20} />
-            <View style={s.ringInner}>
-              <Feather name="x" size={10} color={colors.accent} />
-            </View>
-          </View>
-        </Pressable>
-      )}
-    </ScrollView>
+    </View>
   );
 
   /** Big read button only */
@@ -454,33 +495,6 @@ export default function BookHeader({
         <Feather name="book-open" size={13} color={colors.metaText} />
         <Text style={[s.metaText, { color: colors.metaText }]}>{book.pagesCount} {t("book.pages") || "стр."}</Text>
       </View>
-
-      {book.artists && book.artists.length > 0 && (
-        <View style={s.metaRow}>
-          <Feather name="user" size={13} color={colors.metaText} />
-          <Text style={[s.metaText, { color: colors.metaText }]}>
-            {book.artists.map((a) => a.name).join(", ")}
-          </Text>
-        </View>
-      )}
-
-      {book.parodies && book.parodies.length > 0 && (
-        <View style={s.metaRow}>
-          <Feather name="layers" size={13} color={colors.metaText} />
-          <Text style={[s.metaText, { color: colors.metaText }]}>
-            {book.parodies.map((p) => p.name).join(", ")}
-          </Text>
-        </View>
-      )}
-
-      {book.groups && book.groups.length > 0 && (
-        <View style={s.metaRow}>
-          <Feather name="users" size={13} color={colors.metaText} />
-          <Text style={[s.metaText, { color: colors.metaText }]}>
-            {book.groups.map((g) => g.name).join(", ")}
-          </Text>
-        </View>
-      )}
 
       {!!book.scanlator && (
         <View style={s.metaRow}>
@@ -543,7 +557,14 @@ export default function BookHeader({
           {/* Left: poster */}
           <View style={{ width: coverW }}>
             <Pressable onPress={handleReadPress} style={[s.wideCover, { aspectRatio: coverAR, backgroundColor: colors.page }]}>
-              <ExpoImage source={buildImageFallbacks(book.cover)} style={{ width: "100%", height: "100%", pointerEvents: "none" as const }} contentFit="cover" cachePolicy="memory-disk" transition={0} />
+              <ExpoImage
+                source={buildImageFallbacks(book.cover)}
+                style={{ width: "100%", height: "100%" }}
+                pointerEvents="none"
+                contentFit="cover"
+                cachePolicy="memory-disk"
+                transition={0}
+              />
             </Pressable>
           </View>
 
@@ -586,9 +607,16 @@ export default function BookHeader({
       {/* Blurred banner background */}
       <View style={{ width: containerW, alignSelf: "center", aspectRatio: coverAR, overflow: "hidden", position: "relative" }}>
         <ExpoImage source={buildImageFallbacks(book.cover)} style={{ width: "100%", height: "100%" }} contentFit="cover" cachePolicy="memory-disk" priority="high" transition={0} />
+        <View
+          pointerEvents="none"
+          style={[
+            StyleSheet.absoluteFill,
+            { backgroundColor: "#00000066" },
+          ]}
+        />
         <LinearGradient
-          colors={[`${colors.bg}00`, `${colors.bg}cc`, `${colors.bg}ff`]}
-          locations={[0, 0.6, 1]}
+          colors={[`${colors.bg}22`, `${colors.bg}dd`, `${colors.bg}ff`]}
+          locations={[0, 0.45, 1]}
           style={StyleSheet.absoluteFill}
           pointerEvents="none"
         />
@@ -603,7 +631,14 @@ export default function BookHeader({
         backgroundColor: colors.page,
       }]}>
         <Pressable onPress={handleReadPress} style={{ width: "100%", height: "100%" }}>
-          <ExpoImage source={buildImageFallbacks(book.cover)} style={{ width: "100%", height: "100%", pointerEvents: "none" as const }} contentFit="cover" cachePolicy="memory-disk" transition={0} />
+          <ExpoImage
+            source={buildImageFallbacks(book.cover)}
+            style={{ width: "100%", height: "100%" }}
+            pointerEvents="none"
+            contentFit="cover"
+            cachePolicy="memory-disk"
+            transition={0}
+          />
         </Pressable>
       </View>
 
@@ -651,6 +686,7 @@ const s = StyleSheet.create({
   subTitle: { fontSize: 13, marginBottom: 2 },
 
   // Pills (Kinopoisk-style action buttons)
+  actionsRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   pill: {
     flexDirection: "row",
     alignItems: "center",
@@ -662,6 +698,7 @@ const s = StyleSheet.create({
     overflow: "hidden",
   },
   pillTxt: { fontSize: 13, fontWeight: "600" },
+  pillStretchMobile: { flex: 1, justifyContent: "center" },
 
   // Read row
   readRow: { flexDirection: "row", alignItems: "center", gap: 10 },
