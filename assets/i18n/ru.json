@@ -529,6 +529,19 @@
       "delete": "Удалить"
     }
   },
+  "listSort": {
+    "totalCount": "{count} всего",
+    "byAdded": "По добавлению",
+    "byYear": "По году",
+    "byAlpha": "По алфавиту",
+    "newToOld": "От новых к старым",
+    "oldToNew": "От старых к новым",
+    "az": "A→Z",
+    "za": "Z→A"
+  },
+  "favoritesOnline": {
+    "searchPlaceholder": "Поиск в избранном…"
+  },
   "empty": {
     "search": "Ничего не найдено"
   },

@@ -77,6 +77,8 @@ type Props = {
   gridConfig?: BreakpointConfig;
   ListEmptyComponent?: React.ReactNode;
   ListFooterComponent?: React.ReactElement | null;
+  ListHeaderComponent?: React.ReactElement | null;
+  hideToolbar?: boolean;
 
   background?: string;
 
@@ -95,6 +97,8 @@ export default function BookListOnline({
   gridConfig,
   ListEmptyComponent,
   ListFooterComponent,
+  ListHeaderComponent,
+  hideToolbar = false,
   background,
   onAfterUnfavorite,
   onRestoreFavorites,
@@ -113,6 +117,95 @@ export default function BookListOnline({
 
   const [items, setItems] = React.useState<Book[]>(data);
   React.useEffect(() => setItems(data), [data]);
+
+  // Enrich cards (tags/artists/pages/uploaded) via recommendation-lib so "Collecting info" resolves.
+  const [enrichedById, setEnrichedById] = React.useState<Record<number, Book>>({});
+  const enrichQueuedRef = React.useRef<Set<number>>(new Set());
+  const enrichInFlightRef = React.useRef<Set<number>>(new Set());
+  const enrichTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const mergeEnriched = React.useCallback((base: Book, enriched?: Book): Book => {
+    if (!enriched) return base;
+    const b: any = base as any;
+    const e: any = enriched as any;
+    const pickStr = (a?: string, bb?: string) => (a && String(a).trim() ? a : bb || "");
+    const pickNum = (a?: number, bb?: number) =>
+      typeof a === "number" && Number.isFinite(a) && a > 0 ? a : (bb as any);
+    return {
+      ...b,
+      title: {
+        english: pickStr(e?.title?.english, b?.title?.english),
+        japanese: pickStr(e?.title?.japanese, b?.title?.japanese),
+        pretty: pickStr(e?.title?.pretty, b?.title?.pretty),
+      },
+      uploaded: pickStr(e?.uploaded, b?.uploaded),
+      pagesCount: pickNum(e?.pagesCount, b?.pagesCount) ?? b?.pagesCount,
+      tags: Array.isArray(e?.tags) && e.tags.length ? e.tags : b?.tags,
+      artists: Array.isArray(e?.artists) && e.artists.length ? e.artists : b?.artists,
+      characters:
+        Array.isArray(e?.characters) && e.characters.length ? e.characters : b?.characters,
+      parodies: Array.isArray(e?.parodies) && e.parodies.length ? e.parodies : b?.parodies,
+      groups: Array.isArray(e?.groups) && e.groups.length ? e.groups : b?.groups,
+      categories:
+        Array.isArray(e?.categories) && e.categories.length ? e.categories : b?.categories,
+      languages:
+        Array.isArray(e?.languages) && e.languages.length ? e.languages : b?.languages,
+      tagIds: Array.isArray(e?.tagIds) && e.tagIds.length ? e.tagIds : b?.tagIds,
+      // keep cover/thumbnail from base to avoid flicker
+      cover: pickStr(b?.cover, e?.cover),
+      thumbnail: pickStr(b?.thumbnail, e?.thumbnail),
+      coverW: pickNum(b?.coverW, e?.coverW) ?? b?.coverW,
+      coverH: pickNum(b?.coverH, e?.coverH) ?? b?.coverH,
+      media: pickNum(b?.media, e?.media) ?? b?.media,
+    } as Book;
+  }, []);
+
+  const flushEnrichQueue = React.useCallback(() => {
+    if (enrichTimerRef.current) {
+      clearTimeout(enrichTimerRef.current);
+      enrichTimerRef.current = null;
+    }
+    const ids = Array.from(enrichQueuedRef.current);
+    enrichQueuedRef.current.clear();
+    if (!ids.length) return;
+    ids.forEach((id) => enrichInFlightRef.current.add(id));
+    void (async () => {
+      try {
+        const enriched = await fetchBooksFromRecommendationLib(ids, {
+          placeholdersForMissing: true,
+        });
+        const next: Record<number, Book> = {};
+        for (const b of enriched) next[b.id] = b;
+        setEnrichedById((prev) => ({ ...prev, ...next }));
+      } catch {
+        // ignore (offline)
+      } finally {
+        ids.forEach((id) => enrichInFlightRef.current.delete(id));
+      }
+    })();
+  }, []);
+
+  const requestEnrich = React.useCallback(
+    (id: number) => {
+      if (!Number.isFinite(id) || id <= 0) return;
+      if (enrichedById[id]) return;
+      if (enrichInFlightRef.current.has(id)) return;
+      enrichQueuedRef.current.add(id);
+      if (!enrichTimerRef.current) {
+        enrichTimerRef.current = setTimeout(flushEnrichQueue, 250);
+      }
+    },
+    [enrichedById, flushEnrichQueue]
+  );
+
+  React.useEffect(() => {
+    return () => {
+      if (enrichTimerRef.current) clearTimeout(enrichTimerRef.current);
+      enrichTimerRef.current = null;
+      enrichQueuedRef.current.clear();
+      enrichInFlightRef.current.clear();
+    };
+  }, []);
 
   const [selectMode, setSelectMode] = React.useState(false);
   const [selected, setSelected] = React.useState<Set<number>>(new Set());
@@ -244,6 +337,14 @@ export default function BookListOnline({
       const id = item.id;
       const isSelected = selected.has(id);
       const isLastInRow = (index + 1) % cols === 0;
+      const merged = mergeEnriched(item, enrichedById[id]);
+
+      const anyMerged: any = merged as any;
+      const hasAnyTags =
+        (Array.isArray(anyMerged?.tags) && anyMerged.tags.length > 0) ||
+        (Array.isArray(anyMerged?.artists) && anyMerged.artists.length > 0) ||
+        (Array.isArray(anyMerged?.languages) && anyMerged.languages.length > 0);
+      if (!hasAnyTags) requestEnrich(id);
 
       return (
         <View
@@ -256,7 +357,7 @@ export default function BookListOnline({
         >
           <View style={{ position: "relative" }}>
             <BookCard
-              book={item}
+              book={merged}
               cardWidth={cardWidth}
               contentScale={contentScale}
               onPress={() => {
@@ -307,6 +408,9 @@ export default function BookListOnline({
       selected,
       onPress,
       t,
+      enrichedById,
+      mergeEnriched,
+      requestEnrich,
     ]
   );
 
@@ -506,6 +610,13 @@ export default function BookListOnline({
     </View>
   );
 
+  const CombinedHeader = (
+    <>
+      {ListHeaderComponent}
+      {!hideToolbar ? Header : null}
+    </>
+  );
+
   const EmptyOrLoading =
     loading && items.length === 0
       ? (
@@ -557,6 +668,14 @@ export default function BookListOnline({
     (item: Book, index: number) => {
       const id = item.id;
       const isSelected = selected.has(id);
+      const merged = mergeEnriched(item, enrichedById[id]);
+
+      const anyMerged: any = merged as any;
+      const hasAnyTags =
+        (Array.isArray(anyMerged?.tags) && anyMerged.tags.length > 0) ||
+        (Array.isArray(anyMerged?.artists) && anyMerged.artists.length > 0) ||
+        (Array.isArray(anyMerged?.languages) && anyMerged.languages.length > 0);
+      if (!hasAnyTags) requestEnrich(id);
 
       return (
         <View
@@ -565,7 +684,7 @@ export default function BookListOnline({
         >
           <View style={{ position: "relative" }}>
             <BookCard
-              book={item}
+              book={merged}
               cardWidth={cardWidth}
               contentScale={contentScale}
               onPress={() => {
@@ -614,6 +733,9 @@ export default function BookListOnline({
       selected,
       onPress,
       t,
+      enrichedById,
+      mergeEnriched,
+      requestEnrich,
     ]
   );
 
@@ -644,7 +766,7 @@ export default function BookListOnline({
             flexGrow: 1,
           }}
         >
-          {Header}
+          {CombinedHeader}
           {items.length === 0 && !loading ? (
             EmptyOrLoading
           ) : (
@@ -662,7 +784,7 @@ export default function BookListOnline({
           renderItem={renderItem}
           numColumns={cols}
           columnWrapperStyle={cols > 1 ? { justifyContent: "center" } : undefined}
-          ListHeaderComponent={Header}
+          ListHeaderComponent={CombinedHeader}
           contentContainerStyle={{
             paddingHorizontal,
             paddingTop: (paddingHorizontal ?? 0) / 2,

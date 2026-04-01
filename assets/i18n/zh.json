@@ -516,6 +516,19 @@
       "delete": "删除"
     }
   },
+  "listSort": {
+    "totalCount": "共 {count} 个",
+    "byAdded": "按添加",
+    "byYear": "按年份",
+    "byAlpha": "按字母",
+    "newToOld": "从新到旧",
+    "oldToNew": "从旧到新",
+    "az": "A→Z",
+    "za": "Z→A"
+  },
+  "favoritesOnline": {
+    "searchPlaceholder": "在收藏中搜索…"
+  },
   "empty": {
     "search": "未找到任何内容"
   },

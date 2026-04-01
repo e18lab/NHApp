@@ -6,6 +6,7 @@ import {
   Pressable,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 
@@ -22,18 +23,25 @@ import { scrollToTop } from "@/utils/scrollToTop";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useGridConfig } from "@/hooks/useGridConfig";
 import { useTheme } from "@/lib/ThemeContext";
+import { Feather } from "@expo/vector-icons";
+import { useI18n } from "@/lib/i18n/I18nContext";
 
 export default function FavoritesOnlineScreen() {
   const { colors } = useTheme();
+  const { t } = useI18n();
   const router = useRouter();
   const gridConfig = useGridConfig();
 
   const [books, setBooks] = useState<Book[]>([]);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [total, setTotal] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const [infiniteScroll, setInfiniteScroll] = useState(false);
   const scrollRef = useRef<FlatList<Book> | null>(null);
+  const [q, setQ] = useState("");
+  const qDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
 
   const [hasAuth, setHasAuth] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
@@ -44,6 +52,20 @@ export default function FavoritesOnlineScreen() {
   const loadTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const LOAD_SAFETY_MS = 25_000;
+
+  useEffect(() => {
+    AsyncStorage.multiGet(["ui.q.favoritesOnline"])
+      .then((pairs) => {
+        const map = new Map(pairs as any);
+        const qq = map.get("ui.q.favoritesOnline");
+        if (typeof qq === "string") setQ(qq);
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    AsyncStorage.setItem("ui.q.favoritesOnline", q).catch(() => {});
+  }, [q]);
 
   const loadInfiniteScrollSetting = useCallback(() => {
     AsyncStorage.getItem(INFINITE_SCROLL_KEY).then((value) => {
@@ -99,10 +121,12 @@ export default function FavoritesOnlineScreen() {
 
       try {
         const res = await getFavorites({
+          q: q?.trim() ? q.trim() : undefined,
           page: pageNum,
           per_page: BROWSE_CARDS_PER_PAGE,
         });
         const tp = res.num_pages;
+        setTotal(res.total ?? 0);
         const newBooks = res.result.map(galleryCardToBook);
 
         setTotalPages(tp);
@@ -133,8 +157,21 @@ export default function FavoritesOnlineScreen() {
         setEverLoaded(true);
       }
     },
-    [hasAuth, infiniteScroll]
+    [hasAuth, infiniteScroll, q]
   );
+
+  useEffect(() => {
+    if (!hasAuth || !authChecked) return;
+    if (qDebounceRef.current) clearTimeout(qDebounceRef.current);
+    qDebounceRef.current = setTimeout(() => {
+      loadPage(1);
+      scrollToTop(scrollRef);
+    }, 250);
+    return () => {
+      if (qDebounceRef.current) clearTimeout(qDebounceRef.current);
+      qDebounceRef.current = null;
+    };
+  }, [q, hasAuth, authChecked, loadPage]);
 
   const initialLoadDone = useRef(false);
   useEffect(() => {
@@ -218,6 +255,58 @@ export default function FavoritesOnlineScreen() {
         refreshing={refreshing}
         onRefresh={onRefresh}
         onEndReached={infiniteScroll ? onEnd : undefined}
+        hideToolbar={!showSettings}
+        ListHeaderComponent={
+          <View style={styles.header}>
+            <View style={styles.searchRow}>
+              <Text style={{ color: colors.sub, fontSize: 13, fontWeight: "700" }}>
+                {total ? (t("listSort.totalCount", { count: total }) as string) : ""}
+              </Text>
+
+              <View
+                style={[
+                  styles.searchBtn,
+                  {
+                    backgroundColor:
+                      (colors as any).surfaceElevated ??
+                      (colors as any).searchBg ??
+                      (colors as any).page ??
+                      colors.bg,
+                  },
+                ]}
+              >
+                <Feather name="search" size={16} color={colors.sub} />
+                <TextInput
+                  value={q}
+                  onChangeText={setQ}
+                  placeholder={t("favoritesOnline.searchPlaceholder")}
+                  placeholderTextColor={colors.sub}
+                  style={[styles.searchInput, { color: colors.sub }]}
+                  autoCorrect={false}
+                  autoCapitalize="none"
+                  clearButtonMode="while-editing"
+                  returnKeyType="search"
+                />
+              </View>
+
+              <Pressable
+                onPress={() => setShowSettings((v) => !v)}
+                style={[
+                  styles.iconPill,
+                  {
+                    backgroundColor:
+                      (colors as any).surfaceElevated ??
+                      (colors as any).searchBg ??
+                      (colors as any).page ??
+                      colors.bg,
+                  },
+                ]}
+              >
+                <Feather name="sliders" size={16} color={colors.sub} />
+              </Pressable>
+            </View>
+          </View>
+        }
         onPress={(id) =>
           router.push({
             pathname: "/book/[id]",
@@ -246,6 +335,41 @@ export default function FavoritesOnlineScreen() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  header: {
+    paddingHorizontal: 14,
+    paddingTop: 10,
+    paddingBottom: 10,
+    gap: 10,
+  },
+  searchRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  iconPill: {
+    width: 42,
+    height: 42,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  searchBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 999,
+    minHeight: 42,
+    flex: 1,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: "600",
+    letterSpacing: 0.2,
+    paddingVertical: 0,
+  },
   retryWrap: {
     justifyContent: "center",
     alignItems: "center",

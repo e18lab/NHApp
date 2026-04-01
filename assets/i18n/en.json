@@ -525,6 +525,19 @@
       "delete": "Delete"
     }
   },
+  "listSort": {
+    "totalCount": "{count} total",
+    "byAdded": "By added",
+    "byYear": "By year",
+    "byAlpha": "By alphabet",
+    "newToOld": "Newest → oldest",
+    "oldToNew": "Oldest → newest",
+    "az": "A→Z",
+    "za": "Z→A"
+  },
+  "favoritesOnline": {
+    "searchPlaceholder": "Search in favorites…"
+  },
   "empty": {
     "search": "Nothing found"
   },

@@ -3,15 +3,18 @@ import { useFocusEffect, useRouter } from "expo-router";
 import React, { useCallback, useState } from "react";
 import { Platform, Text } from "react-native";
 import { getDownloadProgressSnapshot, subscribeDownloadProgress } from "@/lib/downloadProgressStore";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import type { Book } from "@/api/nhappApi/types";
 import BookList from "@/components/BookList";
+import ListSortBar, { isListSortValue, ListSortValue } from "@/components/ListSortBar";
 import { useGridConfig } from "@/hooks/useGridConfig";
 import { useI18n } from "@/lib/i18n/I18nContext";
 import { electronFileSystem } from "@/utils/electronFileSystem";
 
 export default function DownloadedScreen() {
   const [downloadedBooks, setDownloadedBooks] = useState<Book[]>([]);
+  const [sort, setSort] = useState<ListSortValue>("added_desc");
   const [pending, setPending] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const router = useRouter();
@@ -24,13 +27,25 @@ export default function DownloadedScreen() {
     getDownloadProgressSnapshot
   );
 
+  React.useEffect(() => {
+    AsyncStorage.getItem("ui.sort.downloaded")
+      .then((v) => {
+        if (isListSortValue(v)) setSort(v);
+      })
+      .catch(() => {});
+  }, []);
+
+  React.useEffect(() => {
+    AsyncStorage.setItem("ui.sort.downloaded", sort).catch(() => {});
+  }, [sort]);
+
   const fetchDownloadedBooks = useCallback(async () => {
     setPending(true);
     try {
       const isElectron = Platform.OS === "web" && typeof window !== "undefined" && !!(window as any).electron?.isElectron;
       let nhDir: string;
       let fs: any;
-      let pathJoin: (...paths: string[]) => string;
+      let pathJoin: (...paths: string[]) => Promise<string>;
       if (isElectron) {
         try {
           const baseDir = await electronFileSystem.getDocumentDirectory();
@@ -61,7 +76,7 @@ export default function DownloadedScreen() {
       } else {
         nhDir = `${FileSystem.documentDirectory}NHAppAndroid/`;
         fs = FileSystem;
-        pathJoin = (...paths: string[]) => {
+        pathJoin = async (...paths: string[]) => {
           const cleanedPaths = paths.map((p, i) => {
             if (i === paths.length - 1) return p;
             return p.endsWith("/") ? p.slice(0, -1) : p;
@@ -81,7 +96,7 @@ export default function DownloadedScreen() {
 
       for (const title of titles) {
         try {
-          const titleDir = isElectron ? await pathJoin(nhDir, title) : pathJoin(nhDir, title);
+          const titleDir = await pathJoin(nhDir, title);
           const idMatch = title.match(/^(\d+)_/);
           const titleId = idMatch ? Number(idMatch[1]) : null;
           const titleInfo = await fs.getInfoAsync(titleDir);
@@ -90,10 +105,10 @@ export default function DownloadedScreen() {
 
           for (const lang of langs) {
             try {
-              const langDir = isElectron ? await pathJoin(titleDir, lang) : pathJoin(titleDir, lang);
+              const langDir = await pathJoin(titleDir, lang);
               const langInfo = await fs.getInfoAsync(langDir);
               if (!langInfo.exists || !langInfo.isDirectory) continue;
-              const metaUri = isElectron ? await pathJoin(langDir, "metadata.json") : pathJoin(langDir, "metadata.json");
+              const metaUri = await pathJoin(langDir, "metadata.json");
               const metaInfo = await fs.getInfoAsync(metaUri);
               if (!metaInfo.exists) continue;
               const raw = await fs.readAsStringAsync(metaUri);
@@ -102,7 +117,7 @@ export default function DownloadedScreen() {
 
               // Fast path: only resolve cover (don't build pages[] — expensive during active download).
               const files = await fs.readDirectoryAsync(langDir);
-              const imageFiles = files.filter((f) => f.startsWith("Image"));
+              const imageFiles = files.filter((f: string) => f.startsWith("Image"));
               if (imageFiles.length === 0) continue;
               let first = imageFiles[0];
               for (const f of imageFiles) {
@@ -112,7 +127,7 @@ export default function DownloadedScreen() {
                 const b = parseInt(f.match(/\d+/)?.[0] || "0", 10);
                 if (b > 0 && (a === 0 || b < a)) first = f;
               }
-              const imgPath = isElectron ? await pathJoin(langDir, first) : pathJoin(langDir, first);
+              const imgPath = await pathJoin(langDir, first);
               const url = (() => {
                 if (!isElectron) return imgPath;
                 const normalizedPath = String(imgPath).replace(/\\/g, "/");
@@ -146,7 +161,7 @@ export default function DownloadedScreen() {
         }
       }
 
-      // Sort by download time (most recent first)
+      // Keep default order as "added_desc" baseline (most recent first)
       books.sort((a, b) => (b.__downloadedAt ?? 0) - (a.__downloadedAt ?? 0));
       const unique = Array.from(
         books
@@ -164,6 +179,39 @@ export default function DownloadedScreen() {
       setPending(false);
     }
   }, []);
+
+  const sortedBooks = React.useMemo(() => {
+    const base = [...downloadedBooks] as any[];
+    const getYear = (b: any) => {
+      const d = b?.uploaded ? new Date(b.uploaded) : null;
+      const y = d && Number.isFinite(d.getTime()) ? d.getFullYear() : 0;
+      return y || 0;
+    };
+    const getTitle = (b: any) => String(b?.title?.pretty ?? "").toLowerCase();
+    const getAdded = (b: any) => Number(b?.__downloadedAt ?? 0);
+
+    switch (sort) {
+      case "added_asc":
+        base.sort((a, b) => getAdded(a) - getAdded(b));
+        break;
+      case "added_desc":
+        base.sort((a, b) => getAdded(b) - getAdded(a));
+        break;
+      case "year_asc":
+        base.sort((a, b) => getYear(a) - getYear(b));
+        break;
+      case "year_desc":
+        base.sort((a, b) => getYear(b) - getYear(a));
+        break;
+      case "alpha_asc":
+        base.sort((a, b) => getTitle(a).localeCompare(getTitle(b)));
+        break;
+      case "alpha_desc":
+        base.sort((a, b) => getTitle(b).localeCompare(getTitle(a)));
+        break;
+    }
+    return base as Book[];
+  }, [downloadedBooks, sort]);
 
   useFocusEffect(
     useCallback(() => {
@@ -214,11 +262,18 @@ export default function DownloadedScreen() {
                 } as any,
               ] as Book[])
             : []),
-          ...downloadedBooks,
+          ...sortedBooks,
         ]}
         loading={pending}
         refreshing={refreshing}
         onRefresh={onRefresh}
+        ListHeaderComponent={
+          <ListSortBar
+            count={sortedBooks.length + (dlSnap.active && dlSnap.bookId ? 1 : 0)}
+            sort={sort}
+            onChangeSort={setSort}
+          />
+        }
         onPress={(id) => {
           // Don't open the placeholder "downloading" card.
           if (typeof id === "number" && id < 0) return;

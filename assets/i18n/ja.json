@@ -516,6 +516,19 @@
       "delete": "削除"
     }
   },
+  "listSort": {
+    "totalCount": "合計 {count} 件",
+    "byAdded": "追加順",
+    "byYear": "年順",
+    "byAlpha": "アルファベット順",
+    "newToOld": "新しい→古い",
+    "oldToNew": "古い→新しい",
+    "az": "A→Z",
+    "za": "Z→A"
+  },
+  "favoritesOnline": {
+    "searchPlaceholder": "お気に入り内を検索…"
+  },
   "empty": {
     "search": "何も見つかりません"
   },
