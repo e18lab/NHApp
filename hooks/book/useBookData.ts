@@ -21,7 +21,7 @@ export const useBookData = (idNum: number) => {
       }
       try {
         await initCdn();
-        const gallery = await getGallery(idNum, { include: ["comments", "related"] });
+        const gallery = await getGallery(idNum, { include: ["comments", "related", "favorite"] });
         setBook(galleryToBook(gallery));
       } catch {
         if (Platform.OS === "android")

@@ -8,10 +8,10 @@ export type MenuItem = {
 };
 export const LIBRARY_MENU: MenuItem[] = [
   { labelKey: "menu.downloaded", icon: "download", route: "/downloaded" },
-  { labelKey: "menu.favorites", icon: "heart", route: "/favorites" },
+  { labelKey: "menu.favorites", icon: "bookmark", route: "/favorites" },
   {
     labelKey: "menu.favoritesOnline",
-    icon: "cloud",
+    icon: "heart",
     route: "/favoritesOnline",
   },
   { labelKey: "menu.history", icon: "clock", route: "/history" },

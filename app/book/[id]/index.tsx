@@ -1,5 +1,5 @@
 import type { Book } from "@/api/nhappApi/types";
-import { getRandomGalleryId, getGallery, getMe, initCdn } from "@/api/v2";
+import { getRandomGalleryId, getGallery, initCdn } from "@/api/v2";
 import { galleryToBook } from "@/api/v2/compat";
 import LoadingSpinner from "@/components/LoadingSpinner";
 import PageItem, { GAP } from "@/components/book/PageItem";
@@ -35,13 +35,11 @@ import { useRelatedComments } from "@/hooks/book/useRelatedComments";
 import { useWindowLayout } from "@/hooks/book/useWindowLayout";
 import { useI18n } from "@/lib/i18n/I18nContext";
 
-import BookHeader from "./components/BookHeader";
-import RelatedSection from "./components/RelatedSection";
+import BookHeader from "./_components/BookHeader";
+import RelatedSection from "./_components/RelatedSection";
 
 export default function BookScreen() {
   const { id, random } = useLocalSearchParams<{ id: string; random?: string }>();
-  const [myUserId, setMyUserId] = useState<number | undefined>(undefined);
-
   const idNum = Number(id);
   const fromRandom = random === "1";
 
@@ -62,7 +60,7 @@ export default function BookScreen() {
     cmtLoading,
     refetchComments,
   } = useRelatedComments(book);
-  const { favorites, toggleFav, liked, toggleLike } = useFavorites(idNum);
+  const { favorites, toggleFav } = useFavorites(idNum);
   const { dl, pr, handleDownloadOrDelete, cancel } = useDownload(book, local, setLocal, setBook);
   const { cols, cycleCols, listRef, setScrollY } = useColumns(wide);
   const {
@@ -108,17 +106,6 @@ export default function BookScreen() {
     if (book?.title?.pretty) router.setParams({ title: book.title.pretty });
   }, [book?.title?.pretty]);
 
-  useEffect(() => {
-    let alive = true;
-    getMe()
-      .then((me) => {
-        if (!alive) return;
-        setMyUserId(me?.id ?? undefined);
-      })
-      .catch(() => {});
-    return () => { alive = false; };
-  }, []);
-
   const horizPad = Math.max(0, innerPadding - GAP / 2);
 
   const headerEl = useMemo(() => {
@@ -131,8 +118,8 @@ export default function BookScreen() {
         wide={wide}
         cols={cols}
         cycleCols={cycleCols}
-        liked={liked}
-        toggleLike={toggleLike}
+        bookmarked={favorites.has(book.id)}
+        onToggleBookmark={() => toggleFav(book.id, !favorites.has(book.id))}
         dl={dl}
         pr={pr}
         local={local}
@@ -155,7 +142,6 @@ export default function BookScreen() {
     innerPadding,
     wide,
     cols,
-    liked,
     dl,
     pr,
     local,
@@ -164,6 +150,7 @@ export default function BookScreen() {
     router,
     cycle,
     allComments.length,
+    favorites,
   ]);
 
   const limitedPages = useMemo(() => {
