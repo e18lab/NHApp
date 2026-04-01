@@ -1,43 +1,49 @@
+import ExpoImage from "@/components/ExpoImageCompat";
+import LoadingSpinner from "@/components/LoadingSpinner";
+import PagerView from "@/components/PagerView";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Image as ExpoImage } from "expo-image";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
+    useCallback,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
 } from "react";
 import {
-  ActivityIndicator,
-  FlatList,
-  ListRenderItemInfo,
-  StyleSheet,
-  View,
-  ViewToken,
-  useWindowDimensions,
+    FlatList,
+    ListRenderItemInfo,
+    Platform,
+    StyleSheet,
+    View,
+    ViewToken,
+    useWindowDimensions,
 } from "react-native";
 import {
-  Gesture,
-  GestureDetector,
-  GestureHandlerRootView,
+    Gesture,
+    GestureDetector,
+    GestureHandlerRootView,
 } from "react-native-gesture-handler";
-import PagerView from "react-native-pager-view";
 import {
-  runOnJS,
-  useAnimatedStyle,
-  useSharedValue,
-  withTiming,
+    runOnJS,
+    useAnimatedStyle,
+    useSharedValue,
+    withTiming,
 } from "react-native-reanimated";
 
-import { BookPage, getBook, loadBookFromLocal } from "@/api/nhentai";
+import { requestStoragePush } from "@/api/nhappApi/cloudStorage";
+import { galleryToBook } from "@/api/v2/compat";
+import { getGallery } from "@/api/v2/galleries";
+import type { BookPage } from "@/api/nhappApi/types";
+import { loadBookFromLocal } from "@/api/nhappApi/localBook";
 import { useTheme } from "@/lib/ThemeContext";
 import { useI18n } from "@/lib/i18n/I18nContext";
 import { ControlsDesktop } from "../components/read/ControlsDesktop";
 import { ControlsMobile } from "../components/read/ControlsMobile";
 import { InspectCanvas } from "../components/read/InspectCanvas";
 import { Banner, HintsOverlay } from "../components/read/Overlays";
-import { BottomScrubber, ThumbRail } from "../components/read/ThumbRail";
+import { SettingsModal } from "../components/read/SettingsModal";
+import { ThumbRail } from "../components/read/ThumbRail";
 
 type Orientation = "vertical" | "horizontal";
 type FitMode = "contain" | "cover";
@@ -66,9 +72,11 @@ const getBool = (v: string | null | undefined, def = false) =>
   v == null ? def : v === "1" || v.toLowerCase?.() === "true";
 const saveBool = (k: string, v: boolean) => {
   AsyncStorage.setItem(k, v ? "1" : "0").catch(() => {});
+  requestStoragePush();
 };
 const saveStr = (k: string, v: string) => {
   AsyncStorage.setItem(k, v).catch(() => {});
+  requestStoragePush();
 };
 
 export async function getReadHistory(): Promise<ReadHistoryEntry[]> {
@@ -82,7 +90,7 @@ export async function getReadHistory(): Promise<ReadHistoryEntry[]> {
   }
 }
 
-async function updateReadHistory(
+export async function updateReadHistory(
   bookId: number,
   current: number,
   total: number
@@ -93,6 +101,7 @@ async function updateReadHistory(
     const timestamp = Math.floor(Date.now() / 1000);
     filtered.unshift([bookId, current, total, timestamp]);
     await AsyncStorage.setItem(READ_HISTORY_KEY, JSON.stringify(filtered));
+    requestStoragePush();
   } catch (e) {
     console.warn("[readHistory] failed:", e);
   }
@@ -119,7 +128,7 @@ export default function ReadScreen() {
   const isLandscape = W > H;
   const isPhone = !isTablet;
 
-  const pager = useRef<PagerView>(null);
+  const pager = useRef<any>(null);
 
   const [pages, setPages] = useState<BookPage[]>([]);
   const [urls, setUrls] = useState<string[]>([]);
@@ -142,13 +151,16 @@ export default function ReadScreen() {
     center: true,
     right: true,
   });
+  const [settingsModalVisible, setSettingsModalVisible] = useState(false);
 
   const [frameIdx, setFrameIdx] = useState(0);
   const frameIdxRef = useRef(0);
   const absIndexRef = useRef(0);
+  const initialAbsRef = useRef<number | null>(null);
   const { t } = useI18n();
 
   const didInitRef = useRef(false);
+  const [prefetchStartIndex, setPrefetchStartIndex] = useState<number | null>(null);
 
   const [banner, setBanner] = useState<string | null>(null);
   const bannerOpacity = useSharedValue(0);
@@ -171,9 +183,14 @@ export default function ReadScreen() {
 
   useEffect(() => {
     didInitRef.current = false;
+    setPrefetchStartIndex(null);
   }, [bookId]);
 
   useEffect(() => {
+    if (!Number.isFinite(bookId) || bookId <= 0) {
+      router.back();
+      return;
+    }
     let cancelled = false;
     (async () => {
       try {
@@ -191,7 +208,8 @@ export default function ReadScreen() {
         const bookPromise = (async () => {
           const local = await loadBookFromLocal(bookId);
           if (local) return local;
-          return await getBook(bookId);
+          const g = await getGallery(bookId);
+          return galleryToBook(g);
         })();
 
         const [[gOrient, gDual, gFit, gTap, gHand, gInsp, hh, gCont], book] =
@@ -274,21 +292,38 @@ export default function ReadScreen() {
 
   useEffect(() => {
     if (!urls.length) return;
-    let i = 0,
+    if (prefetchStartIndex === null || prefetchStartIndex === undefined) return;
+    if (!didInitRef.current) return; 
+    let i = prefetchStartIndex,
       cancelled = false;
+    let backwardIndex = prefetchStartIndex - 1;
     const step = () => {
-      for (let k = 0; k < 16 && i < urls.length; k++, i++) {
-        try {
-          (ExpoImage as any).prefetch?.(urls[i]);
-        } catch {}
+      let prefetched = 0;
+      if (i < urls.length && prefetched < 12) {
+        for (let k = 0; k < 12 && i < urls.length; k++, i++) {
+          try {
+            (ExpoImage as any).prefetch?.(urls[i]);
+            prefetched++;
+          } catch {}
+        }
       }
-      if (!cancelled && i < urls.length) setTimeout(step, 0);
+      if (backwardIndex >= 0 && prefetched < 16) {
+        for (let k = 0; k < 4 && backwardIndex >= 0; k++, backwardIndex--) {
+          try {
+            (ExpoImage as any).prefetch?.(urls[backwardIndex]);
+            prefetched++;
+          } catch {}
+        }
+      }
+      if (!cancelled && (i < urls.length || backwardIndex >= 0)) {
+        setTimeout(step, 0);
+      }
     };
     step();
     return () => {
       cancelled = true;
     };
-  }, [urls]);
+  }, [urls, prefetchStartIndex]);
 
   const listRef = useRef<FlatList<number>>(null);
 
@@ -346,8 +381,10 @@ export default function ReadScreen() {
       }
 
       initialAbs = Math.max(0, Math.min(urls.length - 1, initialAbs));
+      initialAbsRef.current = initialAbs;
       absIndexRef.current = initialAbs;
       initialIndexRef.current = initialAbs;
+      setPrefetchStartIndex(initialAbs);
 
       if (!continuous) {
         const idx = frameIdxFromAbs(initialAbs);
@@ -366,6 +403,7 @@ export default function ReadScreen() {
 
   useEffect(() => {
     if (continuous) return;
+    if (!didInitRef.current) return; 
     const around = [
       ...(frames[frameIdx - 1] ?? []).map((i) => urls[i]),
       ...(frames[frameIdx + 1] ?? []).map((i) => urls[i]),
@@ -377,21 +415,8 @@ export default function ReadScreen() {
     });
   }, [frameIdx, frames, urls, continuous]);
 
-  const THUMB_H = 64,
-    THUMB_GAP = 12;
   const thumbListRef = useRef<FlatList<string>>(null);
   const [railH, setRailH] = useState(1);
-
-  const scrollThumbsTo = useCallback(
-    (abs: number) => {
-      const offset = abs * (THUMB_H + THUMB_GAP) - (railH / 2 - THUMB_H / 2);
-      thumbListRef.current?.scrollToOffset({
-        offset: Math.max(0, offset),
-        animated: true,
-      });
-    },
-    [railH]
-  );
 
   const visualFrameIdx = frameIdxFromAbs(absIndexRef.current);
   const currentPages = frames[visualFrameIdx] ?? [absIndexRef.current];
@@ -403,10 +428,6 @@ export default function ReadScreen() {
     : 0;
 
   const isSingleFrame = (currentPages.length ?? 1) === 1;
-
-  useEffect(() => {
-    if (uiVisible && !isPhone && !continuous) scrollThumbsTo(activeAbsPage);
-  }, [activeAbsPage, uiVisible, isPhone, scrollThumbsTo, continuous]);
 
   const goToAbs = (abs: number) => {
     const targetAbs = Math.max(0, Math.min(totalPages - 1, abs));
@@ -423,13 +444,6 @@ export default function ReadScreen() {
     }
   };
 
-  const [scrubW, setScrubW] = useState(W);
-  const onScrub = (x: number) => {
-    const trackW = Math.max(1, scrubW - 20);
-    const ratio = Math.max(0, Math.min(1, (x - 10) / trackW));
-    const targetAbs = Math.round((totalPages - 1) * ratio);
-    goToAbs(targetAbs);
-  };
 
   const jumpFrame = useCallback(
     (next: number) => {
@@ -561,11 +575,11 @@ export default function ReadScreen() {
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.bg }}>
       {!ready || !urls.length ? (
-        <View
-          style={{ flex: 1, backgroundColor: "#000", justifyContent: "center" }}
-        >
-          <ActivityIndicator color="#fff" size="large" />
-        </View>
+        <LoadingSpinner
+          fullScreen
+          size="large"
+          color="#fff"
+        />
       ) : (
         <View style={{ flex: 1 }}>
           <GestureDetector gesture={tapAnywhere}>
@@ -578,8 +592,8 @@ export default function ReadScreen() {
                   ref={pager}
                   style={{ flex: 1 }}
                   orientation={settings.orientation}
-                  initialPage={frameIdxFromAbs(absIndexRef.current)}
-                  onPageSelected={(e) => {
+                  initialPage={initialAbsRef.current != null ? frameIdxFromAbs(initialAbsRef.current) : frameIdxFromAbs(absIndexRef.current)}
+                  onPageSelected={(e: { nativeEvent: { position: number } }) => {
                     const pos = e.nativeEvent.position;
                     setFrameIdx(pos);
                     frameIdxRef.current = pos;
@@ -588,7 +602,6 @@ export default function ReadScreen() {
                       ? Math.max(...pagesAtPos)
                       : pagesAtPos[0];
                     absIndexRef.current = abs;
-                    if (uiVisible && !isPhone) scrollThumbsTo(abs);
                     updateReadHistory(bookId, absIndexRef.current, totalPages);
                   }}
                   scrollEnabled={!inspect}
@@ -679,10 +692,11 @@ export default function ReadScreen() {
                   ItemSeparatorComponent={undefined}
                   ListHeaderComponent={undefined}
                   ListFooterComponent={undefined}
-                  removeClippedSubviews
-                  windowSize={9}
-                  initialNumToRender={10}
-                  maxToRenderPerBatch={14}
+                  removeClippedSubviews={Platform.OS === 'android'}
+                  windowSize={Platform.OS === 'android' ? 5 : 9}
+                  initialNumToRender={Platform.OS === 'android' ? 5 : 10}
+                  maxToRenderPerBatch={Platform.OS === 'android' ? 8 : 14}
+                  updateCellsBatchingPeriod={Platform.OS === 'android' ? 50 : 40}
                   onViewableItemsChanged={onViewableChanged.current}
                   viewabilityConfig={viewabilityConfigRef.current}
                 />
@@ -693,7 +707,7 @@ export default function ReadScreen() {
                   visible={!hideHints}
                   isPhone={isPhone}
                   uiVisible={uiVisible}
-                  phoneBottomInset={8 + 128 + 8}
+                  phoneBottomInset={8 + 76 + 8}
                   colors={colors}
                   hints={hints}
                   handSwap={handSwap}
@@ -710,81 +724,10 @@ export default function ReadScreen() {
           {uiVisible && !isPhone && (
             <ControlsDesktop
               colors={colors}
-              canDual={isLandscape && isTablet && urls.length >= 2}
-              settings={settings}
-              setOrientation={(nv) => {
-                setSettings((s) => ({ ...s, orientation: nv }));
-                saveStr(G_ORIENT, nv);
-                showBanner(
-                  t("reader.banner.orientation", {
-                    mode:
-                      nv === "vertical"
-                        ? t("reader.banner.orientationVertical")
-                        : t("reader.banner.orientationHorizontal"),
-                  })
-                );
-              }}
-              toggleDual={() => {
-                const nv = !settings.dualInLandscape;
-                setSettings((s) => ({ ...s, dualInLandscape: nv }));
-                saveBool(G_DUAL, nv);
-                showBanner(
-                  t("reader.banner.dual", {
-                    state: nv ? t("reader.banner.on") : t("reader.banner.off"),
-                  })
-                );
-              }}
-              toggleFit={() => {
-                const nv: FitMode =
-                  settings.fit === "contain" ? "cover" : "contain";
-                setSettings((s) => ({ ...s, fit: nv }));
-                saveStr(G_FIT, nv);
-                showBanner(
-                  t("reader.banner.fit", {
-                    mode:
-                      nv === "contain"
-                        ? t("reader.banner.fitContain")
-                        : t("reader.banner.fitCover"),
-                  })
-                );
-              }}
-              tapFlipEnabled={tapFlipEnabled}
-              toggleTapFlip={() => {
-                const nv = !tapFlipEnabled;
-                setTapFlip(nv);
-                saveBool(G_TAP, nv);
-                showBanner(
-                  t("reader.banner.tap", {
-                    state: nv ? t("reader.banner.on") : t("reader.banner.off"),
-                  })
-                );
-              }}
-              handSwap={handSwap}
-              toggleHandSwap={() => {
-                const nv = !handSwap;
-                setHandSwap(nv);
-                saveBool(G_HAND, nv);
-                showBanner(
-                  t("reader.banner.hand", {
-                    state: nv ? t("reader.banner.on") : t("reader.banner.off"),
-                  })
-                );
-              }}
-              inspect={inspect}
-              toggleInspect={() => {
-                const nv = !inspect;
-                setInspect(nv);
-                saveBool(G_INSPECT, nv);
-                showBanner(
-                  t("reader.banner.inspect", {
-                    state: nv ? t("reader.banner.on") : t("reader.banner.off"),
-                  })
-                );
-              }}
               jumpPrev={jumpPrev}
               jumpNext={jumpNext}
               onBack={() => router.back()}
-              isSingleFrame={isSingleFrame}
+              onOpenSettings={() => setSettingsModalVisible(true)}
               continuous={continuous}
               toggleContinuous={() => {
                 const nv = !continuous;
@@ -812,79 +755,8 @@ export default function ReadScreen() {
           {uiVisible && isPhone && (
             <ControlsMobile
               colors={colors}
-              canDual={isLandscape && isTablet && urls.length >= 2}
-              settings={settings}
-              setOrientation={(nv) => {
-                setSettings((s) => ({ ...s, orientation: nv }));
-                saveStr(G_ORIENT, nv);
-                showBanner(
-                  t("reader.banner.orientation", {
-                    mode:
-                      nv === "vertical"
-                        ? t("reader.banner.orientationVertical")
-                        : t("reader.banner.orientationHorizontal"),
-                  })
-                );
-              }}
-              toggleDual={() => {
-                const nv = !settings.dualInLandscape;
-                setSettings((s) => ({ ...s, dualInLandscape: nv }));
-                saveBool(G_DUAL, nv);
-                showBanner(
-                  t("reader.banner.dual", {
-                    state: nv ? t("reader.banner.on") : t("reader.banner.off"),
-                  })
-                );
-              }}
-              toggleFit={() => {
-                const nv: FitMode =
-                  settings.fit === "contain" ? "cover" : "contain";
-                setSettings((s) => ({ ...s, fit: nv }));
-                saveStr(G_FIT, nv);
-                showBanner(
-                  t("reader.banner.fit", {
-                    mode:
-                      nv === "contain"
-                        ? t("reader.banner.fitContain")
-                        : t("reader.banner.fitCover"),
-                  })
-                );
-              }}
-              tapFlipEnabled={tapFlipEnabled}
-              toggleTapFlip={() => {
-                const nv = !tapFlipEnabled;
-                setTapFlip(nv);
-                saveBool(G_TAP, nv);
-                showBanner(
-                  t("reader.banner.tap", {
-                    state: nv ? t("reader.banner.on") : t("reader.banner.off"),
-                  })
-                );
-              }}
-              handSwap={handSwap}
-              toggleHandSwap={() => {
-                const nv = !handSwap;
-                setHandSwap(nv);
-                saveBool(G_HAND, nv);
-                showBanner(
-                  t("reader.banner.hand", {
-                    state: nv ? t("reader.banner.on") : t("reader.banner.off"),
-                  })
-                );
-              }}
-              inspect={inspect}
-              toggleInspect={() => {
-                const nv = !inspect;
-                setInspect(nv);
-                saveBool(G_INSPECT, nv);
-                showBanner(
-                  t("reader.banner.inspect", {
-                    state: nv ? t("reader.banner.on") : t("reader.banner.off"),
-                  })
-                );
-              }}
               onBack={() => router.back()}
-              isSingleFrame={isSingleFrame}
+              onOpenSettings={() => setSettingsModalVisible(true)}
               continuous={continuous}
               toggleContinuous={() => {
                 const nv = !continuous;
@@ -909,32 +781,128 @@ export default function ReadScreen() {
             />
           )}
 
+          <SettingsModal
+            visible={settingsModalVisible}
+            onClose={() => setSettingsModalVisible(false)}
+            colors={colors}
+            canDual={isLandscape && isTablet && urls.length >= 2}
+            settings={settings}
+            onOrientationChange={(nv) => {
+              setSettings((s) => ({ ...s, orientation: nv }));
+              saveStr(G_ORIENT, nv);
+              showBanner(
+                t("reader.banner.orientation", {
+                  mode:
+                    nv === "vertical"
+                      ? t("reader.banner.orientationVertical")
+                      : t("reader.banner.orientationHorizontal"),
+                })
+              );
+            }}
+            onDualToggle={() => {
+              const nv = !settings.dualInLandscape;
+              setSettings((s) => ({ ...s, dualInLandscape: nv }));
+              saveBool(G_DUAL, nv);
+              showBanner(
+                t("reader.banner.dual", {
+                  state: nv ? t("reader.banner.on") : t("reader.banner.off"),
+                })
+              );
+            }}
+            onFitToggle={() => {
+              const nv: FitMode =
+                settings.fit === "contain" ? "cover" : "contain";
+              setSettings((s) => ({ ...s, fit: nv }));
+              saveStr(G_FIT, nv);
+              showBanner(
+                t("reader.banner.fit", {
+                  mode:
+                    nv === "contain"
+                      ? t("reader.banner.fitContain")
+                      : t("reader.banner.fitCover"),
+                })
+              );
+            }}
+            tapFlipEnabled={tapFlipEnabled}
+            onTapFlipToggle={() => {
+              const nv = !tapFlipEnabled;
+              setTapFlip(nv);
+              saveBool(G_TAP, nv);
+              showBanner(
+                t("reader.banner.tap", {
+                  state: nv ? t("reader.banner.on") : t("reader.banner.off"),
+                })
+              );
+            }}
+            handSwap={handSwap}
+            onHandSwapToggle={() => {
+              const nv = !handSwap;
+              setHandSwap(nv);
+              saveBool(G_HAND, nv);
+              showBanner(
+                t("reader.banner.hand", {
+                  state: nv ? t("reader.banner.on") : t("reader.banner.off"),
+                })
+              );
+            }}
+            inspect={inspect}
+            onInspectToggle={() => {
+              const nv = !inspect;
+              setInspect(nv);
+              saveBool(G_INSPECT, nv);
+              showBanner(
+                t("reader.banner.inspect", {
+                  state: nv ? t("reader.banner.on") : t("reader.banner.off"),
+                })
+              );
+            }}
+            isSingleFrame={isSingleFrame}
+            continuous={continuous}
+            onContinuousToggle={() => {
+              const nv = !continuous;
+              setContinuous(nv);
+              saveBool(G_CONT, nv);
+              showBanner(
+                nv ? "Continuous scroll: ON" : "Continuous scroll: OFF"
+              );
+              setTimeout(() => {
+                if (nv) {
+                  listRef.current?.scrollToIndex({
+                    index: absIndexRef.current,
+                    animated: false,
+                    viewPosition: 0,
+                  });
+                } else {
+                  const f = frameIdxFromAbs(absIndexRef.current);
+                  pager.current?.setPage(f);
+                }
+              }, 0);
+            }}
+            hideHints={hideHints}
+            onHideHintsToggle={() => {
+              const nv = !hideHints;
+              setHideHints(nv);
+              saveBool(RH_KEY, nv);
+            }}
+          />
+
           {!continuous && (
-            <>
-              <ThumbRail
-                visible={uiVisible && !isPhone}
-                colors={colors}
-                urls={urls}
-                firstAbsPage={activeAbsPage}
-                totalPages={totalPages}
-                frames={frames}
-                frameIdx={visualFrameIdx}
-                useDualNow={useDualNow}
-                goToAbs={goToAbs}
-                railH={railH}
-                setRailH={(h) => setRailH(h)}
-                padCenter={Math.max(0, (railH - 64) / 2)}
-                scrollRef={thumbListRef}
-              />
-              <BottomScrubber
-                visible={uiVisible && isPhone}
-                colors={colors}
-                progressRatio={(activeAbsPage + 1) / Math.max(1, totalPages)}
-                setWidth={setScrubW}
-                onScrub={onScrub}
-                trackWidthPx={Math.max(0, scrubW - 20)}
-              />
-            </>
+            <ThumbRail
+              visible={uiVisible}
+              colors={colors}
+              urls={urls}
+              firstAbsPage={activeAbsPage}
+              totalPages={totalPages}
+              frames={frames}
+              frameIdx={visualFrameIdx}
+              useDualNow={useDualNow}
+              goToAbs={goToAbs}
+              railH={railH}
+              setRailH={(h) => setRailH(h)}
+              padCenter={Math.max(0, (railH - 64) / 2)}
+              scrollRef={thumbListRef}
+              isHorizontal={isPhone}
+            />
           )}
         </View>
       )}

@@ -3,7 +3,6 @@ import { useI18n } from "@/lib/i18n/I18nContext";
 import { Feather } from "@expo/vector-icons";
 import React from "react";
 import { Pressable, StyleSheet, TextInput, View } from "react-native";
-
 export function SearchBar({
   value,
   onChangeText,
@@ -18,7 +17,6 @@ export function SearchBar({
   const { colors } = useTheme();
   const { t } = useI18n();
   const ph = placeholder ?? t("tags.searchPlaceholder");
-
   return (
     <View
       style={[
@@ -45,7 +43,6 @@ export function SearchBar({
     </View>
   );
 }
-
 const styles = StyleSheet.create({
   searchBar: {
     height: 44,

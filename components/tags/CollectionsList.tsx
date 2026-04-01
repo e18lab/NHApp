@@ -4,13 +4,11 @@ import { useI18n } from "@/lib/i18n/I18nContext";
 import { Feather } from "@expo/vector-icons";
 import React, { useMemo, useRef } from "react";
 import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
-
 type Collection = {
   id: string;
   name: string;
   items: Array<{ type: string; name: string; mode: "include" | "exclude" }>;
 };
-
 const PLURAL_TO_SINGULAR: Record<string, string> = {
   tags: "tag",
   artists: "artist",
@@ -22,7 +20,6 @@ const canon = (type: string, name: string, mode: "include" | "exclude") =>
   `${(PLURAL_TO_SINGULAR[type] || type).toLowerCase()}:${String(
     name
   ).toLowerCase()}:${mode}`;
-
 export function CollectionsList({
   collections,
   onReplace,
@@ -36,7 +33,6 @@ export function CollectionsList({
 }) {
   const { colors } = useTheme();
   const { t } = useI18n();
-
   if (collections.length === 0) {
     return (
       <Text style={{ color: colors.sub, fontSize: 12, marginTop: 8 }}>
@@ -44,7 +40,6 @@ export function CollectionsList({
       </Text>
     );
   }
-
   return (
     <>
       {collections.map((c) => (
@@ -59,7 +54,6 @@ export function CollectionsList({
     </>
   );
 }
-
 function CollectionRow({
   c,
   onReplace,
@@ -74,7 +68,6 @@ function CollectionRow({
   const { colors } = useTheme();
   const { t } = useI18n();
   const { filters } = useFilterTags();
-
   const isActive = useMemo(() => {
     if (!filters || !Array.isArray(filters)) return false;
     if ((filters?.length ?? 0) !== (c.items?.length ?? 0)) return false;
@@ -85,7 +78,6 @@ function CollectionRow({
       have.has(canon(String(it.type), String(it.name), it.mode))
     );
   }, [filters, c.items]);
-
   const pressAnim = useRef(new Animated.Value(0)).current;
   const onDown = () => {
     Animated.spring(pressAnim, {
@@ -102,7 +94,6 @@ function CollectionRow({
       useNativeDriver: false,
     }).start();
   };
-
   const bgInterp = pressAnim.interpolate({
     inputRange: [0, 1],
     outputRange: [
@@ -115,7 +106,6 @@ function CollectionRow({
     outputRange: [1, 0.985],
   });
   const ripple = colors.accent + "24";
-
   return (
     <Animated.View
       style={[
@@ -130,7 +120,6 @@ function CollectionRow({
       {isActive && (
         <View style={[styles.activeBar, { backgroundColor: colors.accent }]} />
       )}
-
       <Pressable
         onPress={() => onReplace(c.id)}
         onPressIn={onDown}
@@ -150,7 +139,6 @@ function CollectionRow({
           {t("collections.itemsCount", { count: c.items.length })}
         </Text>
       </Pressable>
-
       <Pressable
         onPress={() => onEdit(c.id)}
         android_ripple={{ color: ripple, borderless: false, foreground: true }}
@@ -167,7 +155,6 @@ function CollectionRow({
       >
         <Feather name="edit-2" size={16} color={colors.sub} />
       </Pressable>
-
       <Pressable
         onPress={() => onDelete(c.id)}
         android_ripple={{ color: ripple, borderless: false, foreground: true }}
@@ -187,7 +174,6 @@ function CollectionRow({
     </Animated.View>
   );
 }
-
 const styles = StyleSheet.create({
   collectionCard: {
     flexDirection: "row",

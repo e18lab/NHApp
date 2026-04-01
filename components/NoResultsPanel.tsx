@@ -2,12 +2,10 @@ import { useTheme } from "@/lib/ThemeContext";
 import { Feather } from "@expo/vector-icons";
 import React from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-
 export type NoResultsAction = {
   label: string;
   onPress: () => void;
 };
-
 export default function NoResultsPanel({
   title,
   subtitle,
@@ -20,7 +18,6 @@ export default function NoResultsPanel({
   actions?: NoResultsAction[];
 }) {
   const { colors } = useTheme();
-
   return (
     <View
       style={[
@@ -36,13 +33,11 @@ export default function NoResultsPanel({
           <Feather name={iconName} size={16} color={colors.accent} />
           <Text style={[styles.title, { color: colors.txt }]}>{title}</Text>
         </View>
-
         {!!subtitle && (
           <Text style={[styles.subtitle, { color: colors.txt, opacity: 0.8 }]}>
             {subtitle}
           </Text>
         )}
-
         {actions.length > 0 && (
           <View style={styles.actionsRow}>
             {actions.map((a, i) => (
@@ -65,7 +60,6 @@ export default function NoResultsPanel({
     </View>
   );
 }
-
 const styles = StyleSheet.create({
   wrap: {
     borderBottomWidth: StyleSheet.hairlineWidth,

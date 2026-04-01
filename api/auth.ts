@@ -2,18 +2,34 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import Constants from "expo-constants";
 import { Platform } from "react-native";
 
+
+const PROXY_BASE = Platform.OS === "web" 
+  ? (process.env.EXPO_PUBLIC_API_BASE_URL || "http://localhost:3002") + "/fpi"
+  : null;
+
 export const NH_HOST = "https://nhentai.net";
 export const LOGIN_URL = `${NH_HOST}/login/?next=/`;
 
+
+function getProxiedUrl(path: string): string {
+  const isElectron = Platform.OS === "web" && typeof window !== "undefined" && !!(window as any).electron?.isElectron;
+  if (isElectron) {
+    return path; 
+  }
+  if (Platform.OS === "web" && PROXY_BASE && path.startsWith("https://nhentai.net")) {
+    return path.replace("https://nhentai.net", `${PROXY_BASE}/nhentai`);
+  }
+  return path;
+}
+
 export type AuthTokens = {
   csrftoken?: string;
-  /** sessionid чаще всего HttpOnly → из JS его не видно */
   sessionid?: string;
 };
 
 const STORAGE_KEY = "@auth.tokens.v1";
 
-// Доп. ключи, которые мы сохраняли из WebView/скрейперов:
+
 const EXTRA_AUTH_KEYS = ["nh.csrf", "nh.session", "nh.cf_clearance", "nh.me"];
 
 const COOKIE_NAMES = [
@@ -24,18 +40,17 @@ const COOKIE_NAMES = [
   "csrftoken_legacy",
 ];
 
-// -------- CookieManager (лениво и безопасно для Expo Go) ----------
+
 let CookieManager: any = null;
 if (Constants.appOwnership !== "expo") {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
     CookieManager = require("@react-native" + "-cookies/cookies").default;
   } catch {}
 }
 
 export const hasNativeCookieJar = () => Boolean(CookieManager);
 
-// --------- helpers ----------
+
 function normalizeTokens(obj: any): AuthTokens {
   const rawCsrf =
     typeof obj?.csrftoken === "string" ? obj.csrftoken.trim() : "";
@@ -83,14 +98,13 @@ async function applyTokensToNativeJar(tokens: AuthTokens): Promise<void> {
           })
         );
       }
-      // sessionid не пишем руками — сервер кладёт HttpOnly сам
     }
     await Promise.all(ops);
     if (Platform.OS === "android") await CookieManager.flush?.();
   } catch {}
 }
 
-// --------- storage ----------
+
 export async function saveTokens(tokens: AuthTokens): Promise<void> {
   const prev = await loadTokens();
   const next = normalizeTokens({
@@ -101,7 +115,7 @@ export async function saveTokens(tokens: AuthTokens): Promise<void> {
   await applyTokensToNativeJar(next);
 }
 
-/** Всегда возвращает объект с ключами { csrftoken?, sessionid? } */
+
 export async function loadTokens(): Promise<AuthTokens> {
   try {
     const raw = await AsyncStorage.getItem(STORAGE_KEY);
@@ -113,12 +127,11 @@ export async function loadTokens(): Promise<AuthTokens> {
   }
 }
 
-/** Полная очистка наших токенов + всех доп. ключей, которые могли сохранить WebView/скрейперы */
+
 export async function clearTokens(): Promise<void> {
   try {
     await AsyncStorage.multiRemove([STORAGE_KEY, ...EXTRA_AUTH_KEYS]);
   } catch {
-    // fallback: удалить по одному
     await AsyncStorage.removeItem(STORAGE_KEY).catch(() => {});
     for (const k of EXTRA_AUTH_KEYS)
       await AsyncStorage.removeItem(k).catch(() => {});
@@ -129,12 +142,12 @@ export async function getCookieHeader(): Promise<string> {
   return buildCookieHeader(await loadTokens());
 }
 
-// --------- manual ----------
+
 export async function setManualTokens(csrftoken?: string, sessionid?: string) {
   await saveTokens({ csrftoken, sessionid });
 }
 
-// --------- native jar sync ----------
+
 function pickCookieValue(cookies: any, name: string): string | undefined {
   if (!cookies) return undefined;
   return cookies?.[name]?.value ?? cookies?.[name];
@@ -164,10 +177,7 @@ export async function syncNativeCookiesFromJar(): Promise<AuthTokens> {
   return next;
 }
 
-/**
- * Строка Cookie. В НАТИВНЫХ сборках НЕ подставляем вручную,
- * иначе затрём HttpOnly sessionid из системного джара.
- */
+
 export async function cookieHeaderString(opts?: {
   preferNative?: boolean;
 }): Promise<string> {
@@ -176,7 +186,7 @@ export async function cookieHeaderString(opts?: {
   return buildCookieHeader(await loadTokens());
 }
 
-/** Чек авторизации */
+
 export async function hasValidTokens(): Promise<boolean> {
   const t = await loadTokens();
   if (t.csrftoken && t.sessionid) return true;
@@ -194,7 +204,7 @@ export async function hasValidTokens(): Promise<boolean> {
   return false;
 }
 
-// ---------- fetch helpers ----------
+
 export type NHFetchInit = RequestInit & {
   csrf?: boolean;
   withAuth?: boolean;
@@ -205,18 +215,116 @@ export async function nhFetch(
   path: string,
   init: NHFetchInit = {}
 ): Promise<Response> {
+  const isElectron = Platform.OS === "web" && typeof window !== "undefined" && !!(window as any).electron?.isElectron;
+  console.log(`[nhFetch] Platform.OS: ${Platform.OS}, isElectron: ${isElectron}, path: ${path}`);
+  if (isElectron) {
+    const electron = (window as any).electron;
+    if (!electron || !electron.fetchJson) {
+      console.warn("[nhFetch] Electron detected but fetchJson not available, falling back to proxy");
+    } else {
+      const urlBase = path.startsWith("http") ? path : `${NH_HOST}${path}`;
+      let url =
+        init.noCache === true
+          ? `${urlBase}${urlBase.includes("?") ? "&" : "?"}ts=${Date.now()}`
+          : urlBase;
+
+      const withAuth = init.withAuth !== false;
+      const tokens = await loadTokens();
+      const headers: Record<string, string> = {};
+      if (withAuth) {
+        const cookieHeader = await cookieHeaderString({ preferNative: false });
+        if (cookieHeader) {
+          headers["Cookie"] = cookieHeader;
+        }
+      }
+
+      const needsCsrf =
+        init.csrf === true ||
+        (init.method && !/^(GET|HEAD)$/i.test(String(init.method))) ||
+        false;
+
+      if (needsCsrf && tokens.csrftoken) {
+        headers["X-CSRFToken"] = tokens.csrftoken;
+        headers["Referer"] = NH_HOST + "/";
+      }
+
+      if (init.headers) {
+        const customHeaders = new Headers(init.headers);
+        customHeaders.forEach((value, key) => {
+          headers[key] = value;
+        });
+      }
+
+      console.log(`[nhFetch] Using Electron IPC for: ${url}`);
+      try {
+        const result = await electron.fetchJson(url, {
+          method: init.method || "GET",
+          headers,
+          body: init.body,
+        });
+
+        if (!result.success) {
+          console.error(`[nhFetch] IPC request failed:`, result.error);
+          return new Response(JSON.stringify({ error: result.error || "Request failed" }), {
+            status: 500,
+            statusText: result.error || "Request failed",
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+
+        const responseHeaders = new Headers();
+        if (result.headers) {
+          Object.keys(result.headers).forEach(key => {
+            responseHeaders.set(key, String(result.headers[key]));
+          });
+        }
+
+        console.log(`[nhFetch] IPC request success: ${result.status}`);
+        return new Response(result.body || "", {
+          status: result.status || 200,
+          statusText: result.statusText || "OK",
+          headers: responseHeaders,
+        });
+      } catch (err: any) {
+        console.error("[nhFetch] Electron IPC error:", err);
+        return new Response(JSON.stringify({ error: err.message || "IPC request failed" }), {
+          status: 500,
+          statusText: err.message || "IPC request failed",
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+    }
+  }
+
   const urlBase = path.startsWith("http") ? path : `${NH_HOST}${path}`;
-  const url =
+  let url =
     init.noCache === true
       ? `${urlBase}${urlBase.includes("?") ? "&" : "?"}ts=${Date.now()}`
       : urlBase;
 
+  url = getProxiedUrl(url);
+
   const withAuth = init.withAuth !== false;
   const headers = new Headers(init.headers || {});
 
+  if (Platform.OS !== "web") {
+    if (!headers.has("User-Agent")) {
+      headers.set("User-Agent", "nh-client");
+    }
+  }
+
   if (withAuth && !headers.has("Cookie") && !hasNativeCookieJar()) {
     const cookieHeader = await cookieHeaderString({ preferNative: false });
-    if (cookieHeader) headers.set("Cookie", cookieHeader);
+    if (cookieHeader) {
+      headers.set("Cookie", cookieHeader);
+      if (Platform.OS === "web") {
+        console.log(`[nhFetch] Added Cookie header (length: ${cookieHeader.length})`);
+      }
+    } else {
+      if (Platform.OS === "web") {
+        console.warn(`[nhFetch] No cookie header available for ${url}`);
+      }
+    }
   }
 
   const tokens = await loadTokens();
@@ -240,10 +348,9 @@ export function nhFetchPublic(
   return nhFetch(path, { ...init, withAuth: false });
 }
 
-/* ================== LOGOUT ================== */
+
 
 async function deepCookiePurge(): Promise<void> {
-  // 1) Native (RN)
   if (CookieManager) {
     try {
       if (typeof CookieManager.clearByName === "function") {
@@ -255,7 +362,6 @@ async function deepCookiePurge(): Promise<void> {
           }
         }
       } else {
-        // Фолбэк через «просрочку»
         const expired = "1970-01-01T00:00:00.000Z";
         for (const host of HOST_VARIANTS) {
           for (const name of COOKIE_NAMES) {
@@ -271,24 +377,19 @@ async function deepCookiePurge(): Promise<void> {
         }
       }
 
-      // На Android обязательно flush
       if (Platform.OS === "android") await CookieManager.flush?.();
 
-      // И «последний шанс»
       try {
         await CookieManager.clearAll?.();
       } catch {}
     } catch {}
   }
 
-  // 2) Web (если Expo web): удалим то, что доступно текущему домену
   if (Platform.OS === "web") {
     try {
       const expire = "Thu, 01 Jan 1970 00:00:00 GMT";
       for (const name of COOKIE_NAMES) {
-        // Текущий хост
         document.cookie = `${name}=; expires=${expire}; path=/`;
-        // Варианты домена (если совпадает с текущим — сработает)
         for (const d of DOMAIN_VARIANTS) {
           document.cookie = `${name}=; expires=${expire}; path=/; domain=${d}`;
         }
@@ -319,7 +420,6 @@ async function tryRemoteLogout(): Promise<boolean> {
 }
 
 export async function logout(): Promise<void> {
-  // Попробовать сообщить серверу
   try {
     await tryRemoteLogout();
   } catch {}
@@ -352,4 +452,35 @@ export async function getAuthCookies(): Promise<AuthTokens> {
 
 export async function setAuthCookies(tokens: AuthTokens): Promise<void> {
   await saveTokens(tokens);
+}
+
+
+export async function syncElectronCookies(): Promise<AuthTokens> {
+  if (Platform.OS !== "web" || typeof window === "undefined") {
+    return await loadTokens();
+  }
+
+  const electron = (window as any).electron;
+  if (!electron || !electron.isElectron) {
+    return await loadTokens();
+  }
+
+  try {
+    const result = await electron.getCookies("https://nhentai.net");
+    if (result.success && result.cookies) {
+      const cookies = result.cookies;
+      const tokens: AuthTokens = {
+        csrftoken: cookies.csrftoken,
+        sessionid: cookies.sessionid,
+      };
+      if (tokens.csrftoken || tokens.sessionid) {
+        await saveTokens(tokens);
+        return tokens;
+      }
+    }
+  } catch (err) {
+    console.error("[auth] Failed to sync Electron cookies:", err);
+  }
+
+  return await loadTokens();
 }

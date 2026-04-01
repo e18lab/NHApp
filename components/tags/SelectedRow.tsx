@@ -2,7 +2,6 @@ import React from "react";
 import { rusOf, toPlural } from "./helpers";
 import { TagRow } from "./TagRow";
 import { TagItem, TagMode } from "./types";
-
 export function SelectedRow({
   type,
   name,
@@ -33,7 +32,6 @@ export function SelectedRow({
       enLow: name.toLowerCase(),
       ruLow: rusOf(name).toLowerCase(),
     } as TagItem);
-
   return (
     <TagRow
       item={found}

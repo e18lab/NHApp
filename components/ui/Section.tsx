@@ -1,6 +1,5 @@
 import React from "react";
 import { StyleProp, Text, View, ViewStyle } from "react-native";
-
 export const Section = React.memo(function Section({
   title,
   color,

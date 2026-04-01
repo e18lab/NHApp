@@ -1,7 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import React from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-
 export function IconBtn({
   onPress,
   name,
@@ -23,7 +22,6 @@ export function IconBtn({
     </View>
   );
 }
-
 export function ToggleBtn({
   active,
   onToggle,
@@ -52,7 +50,6 @@ export function ToggleBtn({
     </View>
   );
 }
-
 export function RowBtn({
   onPress,
   icon,
@@ -77,7 +74,6 @@ export function RowBtn({
     </View>
   );
 }
-
 export function RowToggle({
   active,
   onToggle,
@@ -116,7 +112,6 @@ export function RowToggle({
     </View>
   );
 }
-
 const styles = StyleSheet.create({
   iconBtn: {
     padding: 8,

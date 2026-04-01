@@ -1,22 +1,24 @@
-import {
-  Book,
-  DateSearchPhase,
-  DateSearchProgress,
-  searchBooks,
-} from "@/api/nhentai";
+import type { Book } from "@/api/nhappApi/types";
+import { fetchGalleryBrowseSlice } from "@/api/v2";
+import { galleryCardToBook } from "@/api/v2/compat";
 import BookList from "@/components/BookList";
 import NoResultsPanel from "@/components/NoResultsPanel";
 import PaginationBar from "@/components/PaginationBar";
-import WhatsNewModal from "@/components/WhatsNewModal";
+import { requestStoragePush, subscribeToStorageApplied } from "@/api/nhappApi/cloudStorage";
+import { INFINITE_SCROLL_KEY } from "@/components/settings/keys";
 import { useDateRange } from "@/context/DateRangeContext";
 import { useSort } from "@/context/SortContext";
 import { useFilterTags } from "@/context/TagFilterContext";
 import { useGridConfig } from "@/hooks/useGridConfig";
 import { useUpdateCheck } from "@/hooks/useUpdateCheck";
 import { useI18n } from "@/lib/i18n/I18nContext";
-import { useTheme } from "@/lib/ThemeContext";
+import { getBannerAssetDataUrls, isElectron } from "@/electron/bridge";
+import { useTheme, type ThemeColors } from "@/lib/ThemeContext";
+import { BROWSE_CARDS_PER_PAGE } from "@/utils/browseGridPageSize";
+import { scrollToTop } from "@/utils/scrollToTop";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { setPendingWhatsNew } from "@/store/pendingWhatsNew";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import React, {
   useCallback,
   useEffect,
@@ -25,34 +27,32 @@ import React, {
   useState,
 } from "react";
 import {
+  AppState,
+  FlatList,
+  Image,
+  ImageBackground,
   Linking,
+  Platform,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
+  useWindowDimensions,
 } from "react-native";
-import Svg, { Circle } from "react-native-svg";
 
-type CacheEntry = { books: Book[]; totalPages: number; ts: number };
+
+type CacheEntry = {
+  books: Book[];
+  totalPages: number;
+  totalItems: number;
+  ts: number;
+};
 const EXPLORE_CACHE = new Map<string, CacheEntry>();
 const CACHE_TTL_MS = 30_000;
 
-type ProbeNow = {
-  which: "start" | "end";
-  page: number;
-  headSec: number;
-  tailSec: number;
-  lo: number;
-  hi: number;
-  mid: number;
-  decision?: "left" | "right" | "hit";
-};
-function hasProbe(p: DateSearchProgress): p is DateSearchProgress & {
-  bounds: NonNullable<DateSearchProgress["bounds"]>;
-  probe: NonNullable<DateSearchProgress["probe"]>;
-} {
-  return p.phase === "range:probe" && !!p.bounds && !!p.probe;
-}
+const UPDATE_BANNER_BG = require("@/assets/images/upd.png");
+const UPDATE_BANNER_ICON = require("@/assets/images/adaptive-icon.png");
+
 type ResultState = "idle" | "loading" | "no-results" | "timeout" | "error";
 
 export default function HomeScreen() {
@@ -73,8 +73,8 @@ export default function HomeScreen() {
     excludes,
     clearAll: clearAllTagFilters,
   } = useFilterTags() as any;
-  const { from: dateFrom, to: dateTo, clearRange, isHydrated } = useDateRange();
-  const dateFilterActive = !!dateFrom || !!dateTo;
+  const { uploaded, clearUploaded, isHydrated } = useDateRange();
+  const dateFilterActive = !!uploaded;
 
   const useFilters = solo !== "1";
   const activeIncludes = useFilters ? includes : [];
@@ -93,21 +93,35 @@ export default function HomeScreen() {
   const [resultState, setResultState] = useState<ResultState>("idle");
   const [errorMsg, setErr] = useState<string>("");
 
-  const [stage, setStage] = useState<DateSearchPhase>("idle");
-  const [probeNow, setProbeNow] = useState<ProbeNow | null>(null);
-  const [windowInfo, setWindowInfo] = useState<{
-    startIndex: number;
-    endIndex: number;
-    total: number;
-  } | null>(null);
   const [isPaginating, setPaginating] = useState(false);
+  const [infiniteScroll, setInfiniteScroll] = useState(false);
+  const scrollRef = useRef<FlatList<Book> | null>(null);
+  const prevPageRef = useRef(currentPage);
 
-  const searching = dateFilterActive && stage !== "idle" && stage !== "done";
   const gridConfig = useGridConfig();
   const reqIdRef = useRef(0);
+  const skipPageChangeRef = useRef(false);
+  const booksLengthRef = useRef(books.length);
 
   const { update, checkUpdate } = useUpdateCheck();
-  const [showNotes, setShowNotes] = useState(false);
+
+  const loadInfiniteScrollSetting = useCallback(() => {
+    AsyncStorage.getItem(INFINITE_SCROLL_KEY).then((value) => {
+      setInfiniteScroll(value === "true");
+    });
+  }, []);
+
+  useEffect(() => {
+    loadInfiniteScrollSetting();
+    const unsub = subscribeToStorageApplied(loadInfiniteScrollSetting);
+    return unsub;
+  }, [loadInfiniteScrollSetting]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadInfiniteScrollSetting();
+    }, [loadInfiniteScrollSetting])
+  );
 
   useEffect(() => {
     AsyncStorage.getItem("bookFavorites").then(
@@ -118,229 +132,29 @@ export default function HomeScreen() {
   const cacheKey = useMemo(
     () =>
       JSON.stringify({
+        v: 3,
+        ipp: BROWSE_CARDS_PER_PAGE,
         q: query.trim(),
         sort,
         inc: activeIncludes,
         exc: activeExcludes,
         page: currentPage,
-        from: dateFrom
-          ? new Date(dateFrom as any).toISOString().slice(0, 10)
-          : null,
-        to: dateTo ? new Date(dateTo as any).toISOString().slice(0, 10) : null,
+        uploaded: uploaded ?? null,
       }),
-    [query, sort, incStr, excStr, currentPage, dateFrom, dateTo]
+    [query, sort, incStr, excStr, currentPage, uploaded]
   );
 
-  const fmt = (sec?: number) =>
-    sec ? new Date(sec * 1000).toLocaleDateString() : "—";
-
-  const probeSubtitle = useMemo(() => {
-    if (!probeNow) return "";
-    const dir =
-      probeNow.decision === "right"
-        ? t("explore.dateSearch.dirRight")
-        : probeNow.decision === "left"
-        ? t("explore.dateSearch.dirLeft")
-        : probeNow.decision === "hit"
-        ? t("explore.dateSearch.dirHit")
-        : "";
-    const head = fmt(probeNow.headSec);
-    const tail = fmt(probeNow.tailSec);
-    const whichLabel =
-      probeNow.which === "start"
-        ? t("explore.dateSearch.whichStart")
-        : t("explore.dateSearch.whichEnd");
-    return t("explore.dateSearch.probeSubtitle", {
-      which: whichLabel,
-      page: probeNow.page,
-      head,
-      tail,
-      dir,
-    });
-  }, [probeNow, t]);
-
-  const Ring = ({
-    progress,
-    size = 20,
-    stroke = 3,
-  }: {
-    progress: number;
-    size?: number;
-    stroke?: number;
-  }) => {
-    const r = (size - stroke) / 2;
-    const c = 2 * Math.PI * r;
-    return (
-      <Svg
-        width={size}
-        height={size}
-        viewBox={`0 0 ${size} ${size}`}
-        style={{ marginLeft: 8 }}
-      >
-        <Circle
-          cx={size / 2}
-          cy={size / 2}
-          r={r}
-          stroke={colors.accent}
-          strokeOpacity={0.25}
-          strokeWidth={stroke}
-          fill="none"
-        />
-        <Circle
-          cx={size / 2}
-          cy={size / 2}
-          r={r}
-          stroke={colors.accent}
-          strokeWidth={stroke}
-          strokeDasharray={`${c}`}
-          strokeDashoffset={c * (1 - progress)}
-          strokeLinecap="round"
-          fill="none"
-          rotation={-90}
-          origin={`${size / 2},${size / 2}`}
-        />
-      </Svg>
-    );
-  };
-
-  const DateSearchPanel = () => {
-    const pct =
-      stage === "meta"
-        ? 0.1
-        : stage === "range:start"
-        ? 0.3
-        : stage === "range:end"
-        ? 0.6
-        : stage === "fetch"
-        ? 0.85
-        : stage === "done"
-        ? 1
-        : 0.05;
-
-    const titleKey =
-      stage === "meta"
-        ? t("explore.dateSearch.title.meta")
-        : stage === "range:start"
-        ? t("explore.dateSearch.title.rangeStart")
-        : stage === "range:end"
-        ? t("explore.dateSearch.title.rangeEnd")
-        : stage === "fetch"
-        ? t("explore.dateSearch.title.fetch")
-        : stage === "done"
-        ? t("explore.dateSearch.title.done")
-        : t("explore.dateSearch.title.loading");
-
-    const title = t(titleKey);
-
-    return (
-      <View
-        style={{
-          backgroundColor: colors.accent + "10",
-          borderBottomColor: colors.page,
-        }}
-      >
-        <View
-          style={{
-            paddingHorizontal: 12,
-            paddingVertical: 10,
-            flexDirection: "row",
-            alignItems: "center",
-          }}
-        >
-          <View style={{ flex: 1 }}>
-            <Text style={{ color: colors.txt, fontWeight: "700" }}>
-              {title}
-            </Text>
-            {!!probeSubtitle && (
-              <Text style={{ color: colors.txt, opacity: 0.8, marginTop: 2 }}>
-                {probeSubtitle}
-              </Text>
-            )}
-            {windowInfo && stage === "fetch" && (
-              <Text style={{ color: colors.txt, opacity: 0.8, marginTop: 2 }}>
-                {t("explore.dateSearch.windowInfo", {
-                  start: windowInfo.startIndex,
-                  end: windowInfo.endIndex,
-                  total: windowInfo.total,
-                })}
-              </Text>
-            )}
-          </View>
-          <Ring progress={pct} />
-        </View>
-      </View>
-    );
-  };
-
-  const UpdateBanner = () => {
-    if (!update) return null;
-    return (
-      <View
-        style={{
-          backgroundColor: colors.accent + "10",
-          borderBottomColor: colors.page,
-        }}
-      >
-        <View
-          style={{
-            paddingHorizontal: 12,
-            paddingVertical: 10,
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 10,
-          }}
-        >
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <Text style={{ color: colors.txt, fontWeight: "700" }}>
-              {t("NewUpdate")} {update.versionName}
-            </Text>
-            {!!update.notes?.trim() && (
-              <TouchableOpacity onPress={() => setShowNotes(true)}>
-                <Text
-                  style={{
-                    color: colors.txt,
-                    opacity: 0.8,
-                    marginTop: 2,
-                    textDecorationLine: "underline",
-                  }}
-                  numberOfLines={1}
-                >
-                  {t("whatsNewUpdate")}
-                </Text>
-              </TouchableOpacity>
-            )}
-          </View>
-
-          <TouchableOpacity
-            onPress={() =>
-              Linking.openURL(
-                "https://github.com/e18lab/NHAppAndroid/releases/latest"
-              )
-            }
-            style={[
-              styles.ctaBtn,
-              {
-                backgroundColor: colors.accent + "33",
-                borderColor: colors.accent,
-              },
-            ]}
-          >
-            <Text style={{ color: colors.accent, fontWeight: "700" }}>
-              {t("downloadUpdate")}
-            </Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    );
-  };
+  useEffect(() => {
+    booksLengthRef.current = books.length;
+  }, [books.length]);
 
   const fetchPage = useCallback(
-    async (page: number, keyForCache: string, force = false, swr = false) => {
+    async (page: number, keyForCache: string, force = false, swr = false, append = false) => {
       const q = query.trim();
       const myReqId = ++reqIdRef.current;
-      const isFirstLoad = books.length === 0;
+      const isFirstLoad = booksLengthRef.current === 0;
 
-      if (!dateFilterActive && !force) {
+      if (!force && !append) {
         const cached = EXPLORE_CACHE.get(keyForCache);
         const freshEnough =
           cached &&
@@ -360,80 +174,60 @@ export default function HomeScreen() {
       }
 
       setErr("");
-      if (dateFilterActive) {
-        setStage("meta");
-        setProbeNow(null);
-        setWindowInfo(null);
-      } else if (isFirstLoad && !swr) {
+      if (isFirstLoad && !swr) {
         setResultState("loading");
       }
 
       let timeoutHit = false;
       const timer = setTimeout(() => {
         timeoutHit = true;
-        if (!dateFilterActive && (isFirstLoad || swr))
-          setResultState("timeout");
+        if (isFirstLoad || swr) setResultState("timeout");
       }, 15000);
 
       try {
-        const res = await (searchBooks as any)({
-          query: q || "",
-          sort,
-          page,
-          perPage: 45,
-          includeTags: activeIncludes,
-          excludeTags: activeExcludes,
-          dateFrom: dateFrom ?? undefined,
-          dateTo: dateTo ?? undefined,
-          sessionKey: `explore::${q || "ALL"}::${incStr}::${excStr}`,
-          onProgress: dateFilterActive
-            ? (pr: DateSearchProgress) => {
-                if (hasProbe(pr)) {
-                  const { bounds: b, probe: pv } = pr;
-                  setProbeNow({
-                    which: pr.which || "start",
-                    page: pv.page,
-                    headSec: pv.headSec,
-                    tailSec: pv.tailSec,
-                    lo: b.lo,
-                    hi: b.hi,
-                    mid: b.mid,
-                    decision: b.decision,
-                  });
-                  return;
-                }
-                if (pr.phase === "fetch" && pr.window) setWindowInfo(pr.window);
-                setStage(pr.phase);
-              }
-            : undefined,
-          force: force || (page === 1 && sort === "date"),
-        });
+        const ipp = BROWSE_CARDS_PER_PAGE;
+        const offset = (page - 1) * ipp;
+        const { slice, total: totalItems } = await fetchGalleryBrowseSlice(
+          {
+            query: q || "",
+            includes: activeIncludes,
+            excludes: activeExcludes,
+            uploaded: uploaded ?? null,
+            sort,
+          },
+          offset,
+          ipp
+        );
+        const books = slice.map(galleryCardToBook);
+        const uiTotalPages = Math.max(1, Math.ceil(totalItems / ipp));
 
         clearTimeout(timer);
         if (myReqId !== reqIdRef.current) return;
 
-        setBooks(res.books);
-        setTotal(res.totalPages);
-        EXPLORE_CACHE.set(keyForCache, {
-          books: res.books,
-          totalPages: res.totalPages,
-          ts: Date.now(),
-        });
-
-        if (!dateFilterActive) {
-          setResultState(res.books.length ? "idle" : "no-results");
+        if (append && page > 1) {
+          setBooks((prev) => {
+            const existingIds = new Set(prev.map((b: Book) => b.id));
+            const newBooks = books.filter((b: Book) => !existingIds.has(b.id));
+            return [...prev, ...newBooks];
+          });
         } else {
-          setTimeout(() => {
-            setStage("done");
-            setProbeNow(null);
-          }, 200);
+          setBooks(books);
+          if (page === 1 || !append) {
+            EXPLORE_CACHE.set(keyForCache, {
+              books,
+              totalPages: uiTotalPages,
+              totalItems,
+              ts: Date.now(),
+            });
+          }
         }
+        setTotal(uiTotalPages);
+        setResultState(books.length ? "idle" : "no-results");
       } catch (e: any) {
         clearTimeout(timer);
         if (myReqId !== reqIdRef.current) return;
         setErr(e?.message || String(e));
-        if (dateFilterActive) setStage("done");
-        else setResultState(timeoutHit ? "timeout" : "error");
+        setResultState(timeoutHit ? "timeout" : "error");
       } finally {
         setPaginating(false);
       }
@@ -443,23 +237,46 @@ export default function HomeScreen() {
       sort,
       incStr,
       excStr,
-      dateFrom,
-      dateTo,
-      dateFilterActive,
+      uploaded,
       activeIncludes,
       activeExcludes,
-      books.length,
+      infiniteScroll,
     ]
   );
 
   useEffect(() => {
     if (!isHydrated) return;
-    const wantFresh = !dateFilterActive && currentPage === 1 && sort === "date";
-    fetchPage(currentPage, cacheKey, wantFresh, wantFresh);
-  }, [isHydrated, cacheKey, currentPage, fetchPage, dateFilterActive, sort]);
+    if (skipPageChangeRef.current) {
+      skipPageChangeRef.current = false;
+      return;
+    }
+    const wantFresh = currentPage === 1 && sort === "date";
+    fetchPage(currentPage, cacheKey, wantFresh, wantFresh, false);
+  }, [isHydrated, cacheKey, currentPage, sort, fetchPage]);
 
   useEffect(() => setQuery(urlQ ?? ""), [urlQ]);
-  useEffect(() => setPage(1), [query, sort, incStr, excStr, dateFrom, dateTo]);
+  useEffect(() => {
+    setPage(1);
+    scrollToTop(scrollRef);
+  }, [query, sort, incStr, excStr, uploaded]);
+
+  useEffect(() => {
+    if (totalPages < 1) return;
+    if (currentPage > totalPages) setPage(totalPages);
+  }, [currentPage, totalPages]);
+
+  useEffect(() => {
+    if (prevPageRef.current === currentPage) return;
+    prevPageRef.current = currentPage;
+    if (infiniteScroll) return;
+    if (Platform.OS === "web") {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => scrollToTop(scrollRef));
+      });
+    } else {
+      scrollToTop(scrollRef);
+    }
+  }, [currentPage, infiniteScroll]);
 
   const onRefresh = useCallback(async () => {
     if (!isHydrated) return;
@@ -467,12 +284,126 @@ export default function HomeScreen() {
     checkUpdate();
   }, [isHydrated, currentPage, cacheKey, fetchPage, checkUpdate]);
 
+  useFocusEffect(
+    useCallback(() => {
+      // Auto-refresh while this screen is focused and the app is active.
+      // Should work on phone + Electron + web.
+      if (!isHydrated) return;
+      if (isPaginating) return;
+
+      let cancelled = false;
+      let inFlight = false;
+      let appState: "active" | "background" | "inactive" =
+        (AppState.currentState as any) ?? "active";
+      let webVisible = true;
+      if (Platform.OS === "web") {
+        try {
+          webVisible = !(globalThis as any).document?.hidden;
+        } catch {
+          webVisible = true;
+        }
+      }
+
+      const intervalMs = 75_000;
+
+      const tick = async () => {
+        if (cancelled || inFlight) return;
+        if (Platform.OS === "web") {
+          if (!webVisible) return;
+        } else if (appState !== "active") {
+          return;
+        }
+        // If user is not on the first page or not sorted by date, avoid background polling.
+        if (currentPage !== 1 || sort !== "date") return;
+
+        inFlight = true;
+        try {
+          await onRefresh();
+        } finally {
+          inFlight = false;
+        }
+      };
+
+      const sub =
+        Platform.OS === "web"
+          ? null
+          : AppState.addEventListener("change", (next) => {
+              appState = next as any;
+              if (next === "active") void tick();
+            });
+
+      const onVisibility = () => {
+        try {
+          webVisible = !(globalThis as any).document?.hidden;
+        } catch {
+          webVisible = true;
+        }
+        if (webVisible) void tick();
+      };
+      const onWindowFocus = () => void tick();
+
+      if (Platform.OS === "web") {
+        try {
+          (globalThis as any).document?.addEventListener?.(
+            "visibilitychange",
+            onVisibility
+          );
+          (globalThis as any).addEventListener?.("focus", onWindowFocus);
+        } catch {
+          // ignore
+        }
+      }
+
+      const t0 = setTimeout(() => void tick(), 5_000);
+      const id = setInterval(() => void tick(), intervalMs);
+      return () => {
+        cancelled = true;
+        clearTimeout(t0);
+        clearInterval(id);
+        if (Platform.OS === "web") {
+          try {
+            (globalThis as any).document?.removeEventListener?.(
+              "visibilitychange",
+              onVisibility
+            );
+            (globalThis as any).removeEventListener?.("focus", onWindowFocus);
+          } catch {
+            // ignore
+          }
+        } else {
+          sub?.remove();
+        }
+      };
+    }, [isHydrated, isPaginating, currentPage, sort, onRefresh])
+  );
+
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const handleRefresh = async () => {
+      globalThis.dispatchEvent?.(
+        new globalThis.CustomEvent("app:refresh-content-start")
+      );
+      try {
+        await onRefresh();
+      } finally {
+        globalThis.dispatchEvent?.(
+          new globalThis.CustomEvent("app:refresh-content-end")
+        );
+      }
+    };
+    globalThis.addEventListener?.("app:refresh-content", handleRefresh);
+    return () => {
+      globalThis.removeEventListener?.("app:refresh-content", handleRefresh);
+    };
+  }, [onRefresh]);
+
   const toggleFav = useCallback(
     (id: number, next: boolean) => {
       setFav((prev) => {
         const cp = new Set(prev);
         next ? cp.add(id) : cp.delete(id);
         AsyncStorage.setItem("bookFavorites", JSON.stringify([...cp]));
+        requestStoragePush();
         return cp;
       });
 
@@ -494,6 +425,7 @@ export default function HomeScreen() {
           EXPLORE_CACHE.set(cacheKey, {
             books: patched,
             totalPages: cached.totalPages,
+            totalItems: cached.totalItems,
             ts: cached.ts,
           });
         return patched;
@@ -502,9 +434,7 @@ export default function HomeScreen() {
     [cacheKey]
   );
 
-  const showNoResults =
-    (!dateFilterActive && resultState === "no-results") ||
-    (dateFilterActive && !searching && books.length === 0);
+  const showNoResults = resultState === "no-results";
 
   const reason = dateFilterActive
     ? "dates"
@@ -542,7 +472,7 @@ export default function HomeScreen() {
       return [
         {
           label: t("explore.noResults.actions.resetDates"),
-          onPress: clearRange,
+          onPress: clearUploaded,
         },
         ...base,
       ];
@@ -568,22 +498,24 @@ export default function HomeScreen() {
       },
       ...base,
     ];
-  }, [router, query, setSort, clearRange, reason, clearAllTagFilters, t]);
+  }, [router, query, setSort, clearUploaded, reason, clearAllTagFilters, t]);
 
   const showListSkeleton =
-    (!dateFilterActive && resultState === "loading" && books.length === 0) ||
-    (dateFilterActive && books.length === 0 && searching);
+    resultState === "loading" && books.length === 0;
 
   return (
     <View style={styles.container}>
-      <UpdateBanner />
-      <WhatsNewModal
-        visible={!!update && showNotes}
-        onClose={() => setShowNotes(false)}
-        notes={update?.notes ?? ""}
+      <UpdateBanner
+        update={update}
+        colors={colors}
+        t={t}
+        onOpenWhatsNewPage={() => {
+          if (update) {
+            setPendingWhatsNew(update);
+            router.push("/whats-new");
+          }
+        }}
       />
-
-      {dateFilterActive && searching && <DateSearchPanel />}
 
       {showNoResults && (
         <NoResultsPanel
@@ -600,7 +532,7 @@ export default function HomeScreen() {
         />
       )}
 
-      {(!dateFilterActive || !searching) && (
+      {!showNoResults && (
         <>
           <BookList
             data={books}
@@ -617,20 +549,53 @@ export default function HomeScreen() {
               });
             }}
             gridConfig={{ default: gridConfig }}
+            scrollRef={scrollRef}
+            onEndReached={
+              infiniteScroll && currentPage < totalPages && !isPaginating
+                ? () => {
+                    setPaginating(true);
+                    const nextPage = currentPage + 1;
+                    const nextCacheKey = JSON.stringify({
+                      v: 3,
+                      ipp: BROWSE_CARDS_PER_PAGE,
+                      q: query.trim(),
+                      sort,
+                      inc: activeIncludes,
+                      exc: activeExcludes,
+                      page: nextPage,
+                      uploaded: uploaded ?? null,
+                    });
+                    skipPageChangeRef.current = true;
+                    fetchPage(nextPage, nextCacheKey, false, false, true);
+                    setPage(nextPage);
+                  }
+                : undefined
+            }
           />
-          <PaginationBar
-            currentPage={currentPage}
-            totalPages={totalPages}
-            onChange={(p) => {
-              setPaginating(true);
-              if (dateFilterActive) {
-                setStage("fetch");
-                setProbeNow(null);
-                setWindowInfo(null);
-              }
-              setPage(p);
-            }}
-          />
+          {!infiniteScroll && (
+            <PaginationBar
+              currentPage={currentPage}
+              totalPages={totalPages}
+              onChange={(p) => {
+                setPaginating(true);
+                skipPageChangeRef.current = true;
+                const paginationCacheKey = JSON.stringify({
+                  v: 3,
+                  ipp: BROWSE_CARDS_PER_PAGE,
+                  q: query.trim(),
+                  sort,
+                  inc: activeIncludes,
+                  exc: activeExcludes,
+                  page: p,
+                  uploaded: uploaded ?? null,
+                });
+                fetchPage(p, paginationCacheKey, false, false, false);
+                setPage(p);
+              }}
+              scrollRef={scrollRef}
+              hideWhenInfiniteScroll={false}
+            />
+          )}
         </>
       )}
     </View>
@@ -644,4 +609,235 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 10,
   },
+  updateBannerOuter: {
+    overflow: "hidden",
+    position: "relative",
+    alignSelf: "stretch",
+  },
+  updateBannerBgImage: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    width: "100%",
+    height: "100%",
+    backfaceVisibility: "hidden",
+  },
+  updateBannerOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.52)",
+  },
+  updateBannerPlankBorder: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "rgba(255,255,255,0.06)",
+  },
+  updateBannerInnerWrap: {
+    position: "relative",
+    zIndex: 1,
+  },
+  updateBannerInnerWrapCentered: {
+    alignSelf: "center",
+    width: "100%",
+    maxWidth: 860,
+  },
+  updateBannerInner: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  updateAppIcon: {
+    overflow: "hidden",
+  },
+  updateTextBlock: {
+    flex: 1,
+    minWidth: 0,
+    justifyContent: "center",
+  },
+  updateTitle: {
+    fontWeight: "700",
+  },
+  updateWhatsNew: {
+    fontSize: 13,
+    textDecorationLine: "underline",
+    opacity: 0.95,
+  },
+  updateCtaBtn: {
+    borderWidth: 1.5,
+  },
+  updateCtaText: {
+    fontWeight: "700",
+    fontSize: 14,
+  },
+  updatePlankTitle: {
+    color: "#fff",
+  },
+  updatePlankLink: {
+    color: "rgba(255,255,255,0.82)",
+    marginTop: 2,
+  },
+  updatePlankCta: {
+    backgroundColor: "rgba(255,255,255,0.14)",
+    borderColor: "rgba(255,255,255,0.28)",
+    borderWidth: 1,
+  },
+  updatePlankCtaText: {
+    color: "#fff",
+  },
+});
+
+type UpdateBannerLayout = {
+  layoutWidth: number;
+  isWide: boolean;
+  isDesktop: boolean;
+  padH: number;
+  iconSize: number;
+};
+
+function UpdateBanner(props: {
+  update: { versionName: string; notes: string; apkUrl: string } | null;
+  colors: ThemeColors;
+  t: (key: string) => string;
+  onOpenWhatsNewPage: () => void;
+}) {
+  const { update, colors, t, onOpenWhatsNewPage } = props;
+  const { width } = useWindowDimensions();
+  const [electronAssets, setElectronAssets] = useState<{
+    bg: string | null;
+    icon: string | null;
+  }>({ bg: null, icon: null });
+  useEffect(() => {
+    if (Platform.OS !== "web" || !isElectron()) return;
+    getBannerAssetDataUrls().then(setElectronAssets);
+  }, []);
+  const layout = useMemo(() => {
+    const isWide = width >= 520;
+    const isDesktop = width >= 900;
+    return {
+      layoutWidth: width,
+      isWide,
+      isDesktop,
+      padH: isWide ? 20 : 14,
+      iconSize: isWide ? 48 : 40,
+    };
+  }, [width]);
+  if (!update) return null;
+  return (
+    <UpdateBannerContent
+      layout={layout}
+      update={update}
+      colors={colors}
+      t={t}
+      onOpenWhatsNewPage={onOpenWhatsNewPage}
+      bannerWidth={Platform.OS === "web" ? width : "100%"}
+      alignSelfCenter={Platform.OS === "web"}
+      electronBgUri={electronAssets.bg}
+      electronIconUri={electronAssets.icon}
+    />
+  );
+}
+
+const UpdateBannerContent = React.memo(function UpdateBannerContent(props: {
+  layout: UpdateBannerLayout;
+  update: { versionName: string; notes: string; apkUrl: string };
+  colors: ThemeColors;
+  t: (key: string) => string;
+  onOpenWhatsNewPage: () => void;
+  bannerWidth: number | "100%";
+  alignSelfCenter: boolean;
+  electronBgUri: string | null;
+  electronIconUri: string | null;
+}) {
+  const { layout, update, colors, t, onOpenWhatsNewPage, bannerWidth, alignSelfCenter, electronBgUri, electronIconUri } = props;
+  const { padH, iconSize, isWide, isDesktop } = layout;
+  const bgSource = electronBgUri ? { uri: electronBgUri } : UPDATE_BANNER_BG;
+  const iconSource = electronIconUri ? { uri: electronIconUri } : UPDATE_BANNER_ICON;
+  return (
+    <View
+      style={[
+        styles.updateBannerOuter,
+        styles.updateBannerPlankBorder,
+        {
+          width: bannerWidth,
+          ...(alignSelfCenter && { alignSelf: "center" as const }),
+        },
+      ]}
+    >
+      <ImageBackground
+        source={bgSource}
+        style={styles.updateBannerBgImage}
+        resizeMode="cover"
+      >
+        <View style={styles.updateBannerOverlay} />
+      </ImageBackground>
+      <View
+        style={[
+          styles.updateBannerInnerWrap,
+          isDesktop && styles.updateBannerInnerWrapCentered,
+        ]}
+      >
+        <View
+          style={[
+            styles.updateBannerInner,
+            {
+              paddingHorizontal: padH,
+              paddingVertical: isWide ? 14 : 12,
+              gap: isWide ? 14 : 10,
+              maxWidth: isDesktop ? 860 : undefined,
+            },
+          ]}
+        >
+          <Image
+            source={iconSource}
+            style={[
+              styles.updateAppIcon,
+              { width: iconSize, height: iconSize, borderRadius: iconSize / 4 },
+            ]}
+            resizeMode="cover"
+          />
+          <View style={styles.updateTextBlock}>
+            <Text
+              style={[
+                styles.updateTitle,
+                styles.updatePlankTitle,
+                { fontSize: isWide ? 17 : 15 },
+              ]}
+              numberOfLines={1}
+            >
+              {t("NewUpdate")} {update.versionName}
+            </Text>
+            <TouchableOpacity onPress={onOpenWhatsNewPage} activeOpacity={0.7}>
+              <Text
+                style={[styles.updateWhatsNew, styles.updatePlankLink]}
+                numberOfLines={1}
+              >
+                {t("whatsNewUpdate")}
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          <TouchableOpacity
+            onPress={() =>
+              Linking.openURL(
+                "https://github.com/e18lab/NHAppAndroid/releases/latest"
+              )
+            }
+            activeOpacity={0.8}
+            style={[
+              styles.updateCtaBtn,
+              styles.updatePlankCta,
+              {
+                paddingVertical: isWide ? 10 : 8,
+                paddingHorizontal: isWide ? 18 : 14,
+                borderRadius: isWide ? 12 : 10,
+              },
+            ]}
+          >
+            <Text style={[styles.updateCtaText, styles.updatePlankCtaText]}>
+              {t("downloadUpdate")}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
+  );
 });

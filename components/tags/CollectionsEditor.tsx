@@ -15,7 +15,6 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { SelectedRow } from "./SelectedRow";
 import { Draft } from "./types";
-
 export function CollectionsEditor({
   draft,
   setDraft,
@@ -38,11 +37,9 @@ export function CollectionsEditor({
   const { colors } = useTheme();
   const { t } = useI18n();
   const insets = useSafeAreaInsets();
-
   const [mode, setMode] = useState<"all" | "include" | "exclude">("all");
   const incCount = draft.items.filter((x) => x.mode === "include").length;
   const excCount = draft.items.filter((x) => x.mode === "exclude").length;
-
   const filtered = useMemo(
     () =>
       draft.items
@@ -50,21 +47,17 @@ export function CollectionsEditor({
         .sort((a, b) => a.name.localeCompare(b.name)),
     [draft.items, mode]
   );
-
   const FOOTER_H = 72;
   const [viewportH, setViewportH] = useState(0);
   const [contentH, setContentH] = useState(0);
   const maxScroll = Math.max(0, contentH - viewportH);
   const scrollY = useRef(new Animated.Value(0)).current;
-
   const hasScroll = contentH > viewportH + 1;
-
   const topOpacity = scrollY.interpolate({
     inputRange: [0, 8, 24],
     outputRange: [0, 0.4, 0.85],
     extrapolate: "clamp",
   });
-
   const bottomOpacity = useMemo(
     () =>
       scrollY.interpolate({
@@ -78,12 +71,10 @@ export function CollectionsEditor({
       }),
     [scrollY, maxScroll]
   );
-
   const titleStr =
     draft.id === "__new__"
       ? t("collections.newTitle")
       : t("collections.editTitle");
-
   return (
     <NhModal
       visible
@@ -112,7 +103,6 @@ export function CollectionsEditor({
             ]}
           />
         </View>
-
         <View style={styles.segmentWrap}>
           {(["all", "include", "exclude"] as const).map((m) => (
             <Pressable
@@ -144,7 +134,6 @@ export function CollectionsEditor({
             </Pressable>
           ))}
         </View>
-
         <View style={styles.counters}>
           <View style={[styles.pill, { backgroundColor: colors.tagBg }]}>
             <Text
@@ -161,7 +150,6 @@ export function CollectionsEditor({
             </Text>
           </View>
         </View>
-
         <View
           style={styles.listWrap}
           onLayout={(e) => setViewportH(e.nativeEvent.layout.height)}
@@ -239,7 +227,6 @@ export function CollectionsEditor({
               ))
             )}
           </Animated.ScrollView>
-
           <Animated.View
             pointerEvents="none"
             style={[styles.fadeTop, { opacity: hasScroll ? topOpacity : 0 }]}
@@ -266,7 +253,6 @@ export function CollectionsEditor({
             />
           </Animated.View>
         </View>
-
         <View
           style={[
             styles.footer,
@@ -291,7 +277,6 @@ export function CollectionsEditor({
               {t("common.reset")}
             </Text>
           </Pressable>
-
           <Pressable
             onPress={onOverwriteFromFilters}
             style={[styles.footerBtn, { backgroundColor: colors.tagBg }]}
@@ -305,7 +290,6 @@ export function CollectionsEditor({
               {t("collections.fromSelected")}
             </Text>
           </Pressable>
-
           <Pressable
             onPress={onSave}
             style={[styles.footerBtn, { backgroundColor: colors.accent }]}
@@ -324,7 +308,6 @@ export function CollectionsEditor({
     </NhModal>
   );
 }
-
 const styles = StyleSheet.create({
   contentWrap: { flex: 1 },
   nameRow: {

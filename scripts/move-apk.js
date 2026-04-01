@@ -1,9 +1,8 @@
 const fs = require("fs");
 const path = require("path");
 const pkg = require("../package.json");
-
 const version = pkg.version || "0.0.0";
-const srcApk = path.join(
+const releaseDir = path.join(
   __dirname,
   "..",
   "android",
@@ -11,17 +10,34 @@ const srcApk = path.join(
   "build",
   "outputs",
   "apk",
-  "release",
-  "app-release.apk"
+  "release"
 );
 const outDir = path.join(__dirname, "..", "output_android");
-const outApk = path.join(outDir, `NHApp-Android-Setup-${version}.apk`);
+fs.mkdirSync(outDir, { recursive: true });
 
-if (!fs.existsSync(srcApk)) {
-  console.error(`❌  APK not found: ${srcApk}`);
+// Support both single app-release.apk and split APKs (app-arm64-v8a-release.apk, app-armeabi-v7a-release.apk)
+const singleApk = path.join(releaseDir, "app-release.apk");
+const apkFiles = fs.existsSync(releaseDir)
+  ? fs.readdirSync(releaseDir).filter((f) => f.endsWith(".apk"))
+  : [];
+
+if (apkFiles.length === 0 && !fs.existsSync(singleApk)) {
+  console.error(`❌  No APK found in ${releaseDir}`);
   process.exit(1);
 }
 
-fs.mkdirSync(outDir, { recursive: true });
-fs.copyFileSync(srcApk, outApk);
-console.log(`✅  Copied → ${outApk}`);
+const toCopy = fs.existsSync(singleApk)
+  ? [{ src: singleApk, name: `NHApp-Android-Setup-${version}.apk` }]
+  : apkFiles.map((f) => {
+      const abi = f.replace("app-", "").replace("-release.apk", "") || "universal";
+      return {
+        src: path.join(releaseDir, f),
+        name: `NHApp-Android-Setup-${version}-${abi}.apk`,
+      };
+    });
+
+toCopy.forEach(({ src, name }) => {
+  const outPath = path.join(outDir, name);
+  fs.copyFileSync(src, outPath);
+  console.log(`✅  Copied → ${outPath}`);
+});

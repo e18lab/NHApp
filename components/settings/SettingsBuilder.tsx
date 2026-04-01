@@ -4,7 +4,6 @@ import Section from "./Section";
 import SliderRow from "./rows/SliderRow";
 import SwitchRow from "./rows/SwitchRow";
 import type { SettingsItem, SettingsSection } from "./schema";
-
 export default function SettingsBuilder({ sections }: { sections: SettingsSection[] }) {
   return (
     <>
@@ -24,11 +23,9 @@ export default function SettingsBuilder({ sections }: { sections: SettingsSectio
     </>
   );
 }
-
 function SectionTitleInline({ children }: { children: React.ReactNode }) {
   return <></>;
 }
-
 function ItemRenderer({ item }: { item: SettingsItem }) {
   if (item.kind === "slider") {
     return (

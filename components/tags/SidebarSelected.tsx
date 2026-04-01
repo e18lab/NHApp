@@ -18,7 +18,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { toPlural } from "./helpers";
 import { SelectedRow } from "./SelectedRow";
 import { TagKind, TagMode } from "./types";
-
 export function SidebarSelected({
   includes,
   excludes,
@@ -48,10 +47,8 @@ export function SidebarSelected({
   const { colors } = useTheme();
   const { t } = useI18n();
   const insets = useSafeAreaInsets();
-
   const scrollY = useRef(new Animated.Value(0)).current;
   const [maxScroll, setMaxScroll] = useState(0);
-
   const topOpacity = useMemo(
     () =>
       scrollY.interpolate({
@@ -61,7 +58,6 @@ export function SidebarSelected({
       }),
     [scrollY]
   );
-
   const bottomOpacity = useMemo(
     () =>
       scrollY.interpolate({
@@ -75,7 +71,6 @@ export function SidebarSelected({
       }),
     [maxScroll, scrollY]
   );
-
   const onScroll = useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
       const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
@@ -88,7 +83,6 @@ export function SidebarSelected({
     },
     [maxScroll, scrollY]
   );
-
   return (
     <View
       style={[
@@ -117,7 +111,6 @@ export function SidebarSelected({
           </View>
         </View>
       </View>
-
       <View style={{ flex: 1, position: "relative" }}>
         <ScrollView
           style={{ flex: 1 }}
@@ -176,7 +169,6 @@ export function SidebarSelected({
               />
             ))
           )}
-
           <Text style={[styles.subhead, { color: colors.title, marginTop: 8 }]}>
             {t("tags.excluded")}
           </Text>
@@ -221,7 +213,6 @@ export function SidebarSelected({
               />
             ))
           )}
-
           <Pressable
             onPress={clear}
             style={[
@@ -235,7 +226,6 @@ export function SidebarSelected({
             </Text>
           </Pressable>
         </ScrollView>
-
         <Animated.View
           pointerEvents="none"
           style={[styles.fadeTop, { opacity: topOpacity }]}
@@ -247,7 +237,6 @@ export function SidebarSelected({
             style={{ flex: 1 }}
           />
         </Animated.View>
-
         <Animated.View
           pointerEvents="none"
           style={[styles.fadeBottom, { opacity: bottomOpacity }]}
@@ -263,7 +252,6 @@ export function SidebarSelected({
     </View>
   );
 }
-
 const styles = StyleSheet.create({
   sidebar: {
     paddingTop: 12,
@@ -290,7 +278,6 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   btnTxt: { fontSize: 12, fontWeight: "800" },
-
   fadeTop: {
     position: "absolute",
     left: 0,

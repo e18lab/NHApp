@@ -1,3 +1,4 @@
+import { requestStoragePush, subscribeToStorageApplied } from "@/api/nhappApi/cloudStorage";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, {
   createContext,
@@ -9,10 +10,8 @@ import React, {
   useState,
 } from "react";
 import type { FilterItem } from "./TagFilterContext";
-
 export type TagKind = "tags" | "artists" | "characters" | "parodies" | "groups";
 export type TagRef = { type: TagKind; name: string };
-
 export interface RecentItem extends TagRef {
   ts: number;
 }
@@ -23,11 +22,9 @@ export interface TagCollection {
   createdAt: number;
   updatedAt: number;
 }
-
 const K_RECENTS = "tagRecents.v1";
 const K_COLLECTIONS = "tagCollections.v1";
 const RECENT_LIMIT = 30;
-
 interface Ctx {
   recents: RecentItem[];
   collections: TagCollection[];
@@ -39,7 +36,6 @@ interface Ctx {
   removeItemFromCollection: (id: string, item: TagRef) => void;
   replaceCollectionItems: (id: string, items: FilterItem[]) => void;
 }
-
 const TagLibCtx = createContext<Ctx>({
   recents: [],
   collections: [],
@@ -51,13 +47,10 @@ const TagLibCtx = createContext<Ctx>({
   removeItemFromCollection: () => {},
   replaceCollectionItems: () => {},
 });
-
 export function useTagLibrary() {
   return useContext(TagLibCtx);
 }
-
 const keyOf = (t: TagRef) => `${t.type}:${t.name}`;
-
 export function TagLibraryProvider({
   children,
 }: {
@@ -65,7 +58,6 @@ export function TagLibraryProvider({
 }) {
   const [recents, setRecents] = useState<RecentItem[]>([]);
   const [collections, setCollections] = useState<TagCollection[]>([]);
-
   useEffect(() => {
     (async () => {
       try {
@@ -78,7 +70,6 @@ export function TagLibraryProvider({
       } catch {}
     })();
   }, []);
-
   const recentsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (recentsTimer.current) clearTimeout(recentsTimer.current);
@@ -89,7 +80,6 @@ export function TagLibraryProvider({
       if (recentsTimer.current) clearTimeout(recentsTimer.current);
     };
   }, [recents]);
-
   const colTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (colTimer.current) clearTimeout(colTimer.current);
@@ -97,12 +87,12 @@ export function TagLibraryProvider({
       AsyncStorage.setItem(K_COLLECTIONS, JSON.stringify(collections)).catch(
         () => {}
       );
+      requestStoragePush();
     }, 150);
     return () => {
       if (colTimer.current) clearTimeout(colTimer.current);
     };
   }, [collections]);
-
   const touchRecent = useCallback((t: TagRef) => {
     const ts = Date.now();
     setRecents((prev) => {
@@ -114,7 +104,6 @@ export function TagLibraryProvider({
       return arr;
     });
   }, []);
-
   const createCollection = useCallback(
     (name: string, items: FilterItem[] = []) => {
       const id = `col_${Date.now().toString(36)}_${Math.random()
@@ -129,17 +118,14 @@ export function TagLibraryProvider({
     },
     []
   );
-
   const renameCollection = useCallback((id: string, name: string) => {
     setCollections((prev) =>
       prev.map((c) => (c.id === id ? { ...c, name, updatedAt: Date.now() } : c))
     );
   }, []);
-
   const deleteCollection = useCallback((id: string) => {
     setCollections((prev) => prev.filter((c) => c.id !== id));
   }, []);
-
   const addItemToCollection = useCallback((id: string, item: FilterItem) => {
     setCollections((prev) =>
       prev.map((c) => {
@@ -162,7 +148,6 @@ export function TagLibraryProvider({
       })
     );
   }, []);
-
   const removeItemFromCollection = useCallback((id: string, item: TagRef) => {
     setCollections((prev) =>
       prev.map((c) =>
@@ -178,7 +163,6 @@ export function TagLibraryProvider({
       )
     );
   }, []);
-
   const replaceCollectionItems = useCallback(
     (id: string, items: FilterItem[]) => {
       setCollections((prev) =>
@@ -191,7 +175,6 @@ export function TagLibraryProvider({
     },
     []
   );
-
   const value = useMemo(
     () => ({
       recents,
@@ -216,6 +199,5 @@ export function TagLibraryProvider({
       replaceCollectionItems,
     ]
   );
-
   return <TagLibCtx.Provider value={value}>{children}</TagLibCtx.Provider>;
 }

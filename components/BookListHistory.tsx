@@ -1,27 +1,31 @@
-import { Book } from "@/api/nhentai";
+import type { Book } from "@/api/nhappApi/types";
 import { format, Locale } from "date-fns";
 import { enUS, ja, ru, zhCN } from "date-fns/locale";
 import React, {
-  ReactElement,
-  ReactNode,
-  useCallback,
-  useMemo,
-  useRef,
-  useState,
+    ReactElement,
+    ReactNode,
+    useCallback,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
 } from "react";
 import {
-  ActivityIndicator,
-  RefreshControl,
-  SectionList,
-  SectionListData,
-  SectionListRenderItem,
-  StyleSheet,
-  Text,
-  useWindowDimensions,
-  View,
+    ActivityIndicator,
+    Platform,
+    RefreshControl,
+    SectionList,
+    SectionListData,
+    SectionListRenderItem,
+    NativeScrollEvent,
+    NativeSyntheticEvent,
+    ScrollView,
+    StyleSheet,
+    Text,
+    useWindowDimensions,
+    View,
 } from "react-native";
 
-import { useFavHistory } from "@/hooks/useFavHistory";
 import { useTheme } from "@/lib/ThemeContext";
 import { useI18n } from "@/lib/i18n/I18nContext";
 import BookCard from "./BookCard";
@@ -34,7 +38,6 @@ export interface GridConfig {
   minColumnWidth?: number;
   paddingHorizontal?: number;
   columnGap?: number;
-  cardDesign?: "classic" | "stable" | "image";
 }
 
 export interface BookListHistoryProps<T extends Book = Book> {
@@ -47,8 +50,6 @@ export interface BookListHistoryProps<T extends Book = Book> {
   ListEmptyComponent?: ReactNode;
   ListFooterComponent?: ReactElement | null;
   ListHeaderComponent?: ReactElement | null;
-  isFavorite?: (id: number) => boolean;
-  onToggleFavorite?: (id: number, next: boolean) => void;
   onPress?: (id: number) => void;
   gridConfig?: {
     phonePortrait?: GridConfig;
@@ -57,9 +58,8 @@ export interface BookListHistoryProps<T extends Book = Book> {
     tabletLandscape?: GridConfig;
     default?: GridConfig;
   };
-  getScore?: (book: T) => number | undefined;
   children?: ReactNode;
-  cardDesign?: "classic" | "stable" | "image";
+  scrollRef?: React.RefObject<SectionList<any> | null>;
 }
 
 type RowItem<T extends Book> = {
@@ -86,33 +86,28 @@ export default function BookListHistory<T extends Book = Book>({
   ListEmptyComponent,
   ListFooterComponent,
   ListHeaderComponent,
-  isFavorite,
-  onToggleFavorite,
   onPress,
   gridConfig,
-  getScore,
   children,
-  cardDesign,
+  scrollRef: externalScrollRef,
 }: BookListHistoryProps<T>) {
   const { colors } = useTheme();
   const { t, resolved } = useI18n();
-  const listRef = useRef<SectionList<SectionRow<T>>>(null);
+  const internalListRef = useRef<SectionList<any> | null>(null);
+  const listRef = externalScrollRef || internalListRef;
   const { width, height } = useWindowDimensions();
+  /** На веб используем измеренные размеры контейнера — при узком окне useWindowDimensions() может давать 0 или не обновляться, из‑за чего не грузится контент. */
+  const [containerLayout, setContainerLayout] = useState({ width: 0, height: 0 });
+  const onContainerLayout = useCallback(
+    (e: { nativeEvent: { layout: { width: number; height: number } } }) => {
+      const { width: w, height: h } = e.nativeEvent.layout;
+      if (Platform.OS === "web" && (w > 0 || h > 0)) {
+        setContainerLayout((prev) => ({ width: w || prev.width, height: h || prev.height }));
+      }
+    },
+    []
+  );
 
-  const { favoritesSet, toggleFavorite } = useFavHistory();
-
-  const historyMap = useMemo(() => {
-    const m: Record<number, { current: number; total: number; ts: number }> =
-      {};
-    for (const [idStr, entry] of Object.entries(historyIndex || {})) {
-      const id = Number(idStr);
-      const cur = Math.max(0, Math.floor(Number(entry?.[1]) || 0));
-      const total = Math.max(1, Math.floor(Number(entry?.[2]) || 1));
-      const ts = Math.floor(Number(entry?.[3]) || 0);
-      m[id] = { current: Math.min(cur, total - 1), total, ts };
-    }
-    return m;
-  }, [historyIndex]);
 
   const { dateLocale, timePattern } = useMemo(() => {
     const loc: Locale =
@@ -127,9 +122,19 @@ export default function BookListHistory<T extends Book = Book>({
     return { dateLocale: loc, timePattern: timeFmt };
   }, [resolved]);
 
+  /** На веб при узком окне useWindowDimensions() может быть 0 — используем измеренный размер контейнера с минимальным fallback. */
+  const effectiveWidth =
+    Platform.OS === "web" && containerLayout.width > 0
+      ? containerLayout.width
+      : Math.max(280, width);
+  const effectiveHeight =
+    Platform.OS === "web" && containerLayout.height > 0
+      ? containerLayout.height
+      : height;
+
   const base = useMemo<GridConfig>(() => {
-    const isPortrait = height > width;
-    const isTablet = width > 600;
+    const isPortrait = effectiveHeight > effectiveWidth;
+    const isTablet = effectiveWidth > 600;
     return isTablet
       ? gridConfig?.tabletLandscape ??
           gridConfig?.tabletPortrait ??
@@ -137,24 +142,19 @@ export default function BookListHistory<T extends Book = Book>({
       : !isPortrait
       ? gridConfig?.phoneLandscape ?? gridConfig?.default ?? { numColumns: 3 }
       : gridConfig?.phonePortrait ?? gridConfig?.default ?? { numColumns: 2 };
-  }, [width, height, gridConfig]);
+  }, [effectiveWidth, effectiveHeight, gridConfig]);
 
   const layout = useMemo(() => {
     const padH = base.paddingHorizontal ?? 0;
     const gap = base.columnGap ?? 0;
-    const chosenDesign: "classic" | "stable" | "image" =
-      cardDesign ?? base.cardDesign ?? "classic";
-    const minW = base.minColumnWidth ?? (chosenDesign === "image" ? 40 : 80);
-    const avail = width - padH * 2;
+    const minW = base.minColumnWidth ?? 80;
+    const avail = Math.max(0, effectiveWidth - padH * 2);
     const maxCols = Math.max(
       1,
       Math.min(base.numColumns, Math.floor((avail + gap) / (minW + gap)))
     );
-    const cardW = (avail - gap * (maxCols - 1)) / maxCols;
-    const estH =
-      chosenDesign === "image"
-        ? Math.round(cardW * 1.05)
-        : Math.round(cardW * 1.35);
+    const cardW = Math.max(minW, (avail - gap * (maxCols - 1)) / maxCols);
+    const estH = Math.round(cardW * 1.35);
     return {
       cols: maxCols,
       cardWidth: cardW,
@@ -162,13 +162,11 @@ export default function BookListHistory<T extends Book = Book>({
       paddingHorizontal: padH,
       estCardH: estH,
     };
-  }, [width, base, cardDesign]);
+  }, [effectiveWidth, base]);
 
   const { cols, cardWidth, columnGap, paddingHorizontal, estCardH } = layout;
   const isSingleCol = cols === 1;
   const contentScale = isSingleCol ? 0.45 : 0.65;
-  const chosenDesign: "classic" | "stable" | "image" =
-    cardDesign ?? base.cardDesign ?? "classic";
 
   const sections = useMemo<SectionShape<T>[]>(() => {
     const enriched = data
@@ -237,10 +235,6 @@ export default function BookListHistory<T extends Book = Book>({
         }}
       >
         {row.map((cell) => {
-          const fav =
-            favoritesSet.has(cell.book.id) ||
-            isFavorite?.(cell.book.id) ||
-            false;
           const entry = historyIndex[cell.book.id];
           const cur = entry ? Number(entry[1]) || 0 : 0;
           const total = entry ? Math.max(1, Number(entry[2]) || 1) : 1;
@@ -280,22 +274,10 @@ export default function BookListHistory<T extends Book = Book>({
               </View>
 
               <BookCard
-                design={chosenDesign}
                 book={cell.book}
                 cardWidth={cardWidth}
-                isSingleCol={isSingleCol}
                 contentScale={contentScale}
-                isFavorite={fav}
-                onToggleFavorite={(id, next) => {
-                  toggleFavorite(id, next);
-                  onToggleFavorite?.(id, next);
-                }}
                 onPress={() => onPress?.(cell.book.id)}
-                score={getScore?.(cell.book)}
-                showProgressOnCard={false}
-                favoritesSet={favoritesSet}
-                historyMap={historyMap}
-                hydrateFromStorage={false}
               />
             </View>
           );
@@ -335,7 +317,18 @@ export default function BookListHistory<T extends Book = Book>({
   }, [sections, rowKey]);
 
   const lastKeyHandledRef = useRef<string>("");
+  const onEndReachedRef = useRef(onEndReached);
+  const lastRowKeyRef = useRef(lastRowKey);
   const [tick, setTick] = useState(0);
+  const endFiredRef = useRef(false);
+
+  useEffect(() => {
+    onEndReachedRef.current = onEndReached;
+  }, [onEndReached]);
+
+  useEffect(() => {
+    lastRowKeyRef.current = lastRowKey;
+  }, [lastRowKey]);
 
   const onViewableItemsChanged = useCallback(
     ({
@@ -343,17 +336,19 @@ export default function BookListHistory<T extends Book = Book>({
     }: {
       viewableItems: Array<{ key?: string; isViewable: boolean }>;
     }) => {
-      if (!onEndReached || !lastRowKey) return;
+      const currentOnEndReached = onEndReachedRef.current;
+      const currentLastRowKey = lastRowKeyRef.current;
+      if (!currentOnEndReached || !currentLastRowKey) return;
       const seen = viewableItems.some(
-        (v) => v.isViewable && v.key === lastRowKey
+        (v) => v.isViewable && v.key === currentLastRowKey
       );
-      if (seen && lastKeyHandledRef.current !== lastRowKey) {
-        lastKeyHandledRef.current = lastRowKey;
-        onEndReached();
+      if (seen && lastKeyHandledRef.current !== currentLastRowKey) {
+        lastKeyHandledRef.current = currentLastRowKey;
+        currentOnEndReached();
         setTick((x) => (x + 1) % 100000);
       }
     },
-    [onEndReached, lastRowKey]
+    [] 
   );
 
   const viewabilityConfig = useMemo(
@@ -365,14 +360,105 @@ export default function BookListHistory<T extends Book = Book>({
     []
   );
 
+  const maybeTriggerEndReachedWeb = useCallback(
+    (e: { nativeEvent: { layoutMeasurement: { height: number }; contentOffset: { y: number }; contentSize: { height: number } } }) => {
+      const currentOnEndReached = onEndReachedRef.current;
+      if (!currentOnEndReached) return;
+      // Use a manual "near end" detector on web/Electron: RNW SectionList's onEndReached can be flaky
+      const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent;
+      const distFromEnd = contentSize.height - contentOffset.y - layoutMeasurement.height;
+      const threshold = Math.max(120, layoutMeasurement.height * 0.4);
+      if (distFromEnd <= threshold) {
+        if (!endFiredRef.current) {
+          endFiredRef.current = true;
+          currentOnEndReached();
+          setTick((x) => (x + 1) % 100000);
+        }
+      } else {
+        endFiredRef.current = false;
+      }
+    },
+    []
+  );
+
+  const containerStyle = useMemo(
+    () => [
+      styles.container,
+      { backgroundColor: colors.page },
+      Platform.OS === "web" && { minHeight: 0 },
+    ],
+    [colors.page]
+  );
+
+  /** Высота списка на веб: измеренная из onLayout или fallback по окну, чтобы при любом размере окна был скролл. */
+  const listHeightWeb =
+    Platform.OS === "web"
+      ? (containerLayout.height > 0
+          ? containerLayout.height
+          : Math.max(200, height - 100))
+      : undefined;
+
+  if (Platform.OS === "web") {
+    const emptyWeb =
+      sections.length === 0 && !loading ? ((ListEmptyComponent as ReactElement) ?? <Empty />) : null;
+
+    const handleScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      maybeTriggerEndReachedWeb(e as any);
+    };
+
+    return (
+      <View style={containerStyle} onLayout={onContainerLayout}>
+        <ScrollView
+          ref={listRef as any}
+          style={[styles.listWeb, listHeightWeb != null && { height: listHeightWeb }]}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          }
+          onScroll={handleScroll}
+          scrollEventThrottle={16}
+          onContentSizeChange={() => {
+            endFiredRef.current = false;
+          }}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{
+            paddingTop: paddingHorizontal / 2,
+            paddingBottom: 16,
+          }}
+        >
+          {ListHeaderComponent}
+          {emptyWeb ? (
+            emptyWeb
+          ) : (
+            <>
+              {sections.map((sec) => (
+                <View key={sec.key}>
+                  {renderSectionHeader({ section: sec as any })}
+                  {sec.data.map((row, idx) => (
+                    <View key={rowKey(row, idx)}>
+                      {renderRow({ item: row as any, index: idx, section: sec as any, separators: null as any })}
+                    </View>
+                  ))}
+                </View>
+              ))}
+              {loading ? <ActivityIndicator style={styles.loader} /> : ListFooterComponent}
+            </>
+          )}
+        </ScrollView>
+        {children}
+      </View>
+    );
+  }
+
   return (
-    <View style={[styles.container, { backgroundColor: colors.page }]}>
+    <View style={containerStyle} onLayout={onContainerLayout}>
       {sections.length === 0 && !loading ? (
         (ListEmptyComponent as ReactElement) ?? <Empty />
       ) : (
         <SectionList
-          key={`sections-${cols}-${cardDesign}`}
+          key={`sections-${cols}`}
           ref={listRef}
+          style={undefined}
           stickySectionHeadersEnabled={false}
           sections={sections}
           keyExtractor={(row, index) =>
@@ -385,6 +471,9 @@ export default function BookListHistory<T extends Book = Book>({
           }
           onEndReached={onEndReached}
           onEndReachedThreshold={0.4}
+          onScroll={undefined}
+          scrollEventThrottle={undefined}
+          onContentSizeChange={undefined}
           ListFooterComponent={
             loading ? (
               <ActivityIndicator style={styles.loader} />
@@ -397,11 +486,11 @@ export default function BookListHistory<T extends Book = Book>({
             paddingTop: paddingHorizontal / 2,
             paddingBottom: 16,
           }}
-          removeClippedSubviews={cardDesign === "image"}
-          windowSize={7}
-          maxToRenderPerBatch={10}
-          initialNumToRender={8}
-          updateCellsBatchingPeriod={40}
+          removeClippedSubviews={Platform.OS === "android"}
+          windowSize={Platform.OS === 'android' ? 5 : 7}
+          maxToRenderPerBatch={Platform.OS === 'android' ? 6 : 10}
+          initialNumToRender={Platform.OS === 'android' ? 6 : 8}
+          updateCellsBatchingPeriod={Platform.OS === 'android' ? 50 : 40}
           onViewableItemsChanged={onViewableItemsChanged}
           viewabilityConfig={viewabilityConfig}
           extraData={tick}
@@ -414,6 +503,7 @@ export default function BookListHistory<T extends Book = Book>({
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  listWeb: { flex: 1, minHeight: 0, overflow: "hidden" as const },
   empty: { flex: 1, justifyContent: "center", alignItems: "center" },
   emptyText: { color: "#888", fontSize: 16 },
   loader: { marginVertical: 16 },

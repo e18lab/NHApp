@@ -18,41 +18,32 @@ import {
   ViewStyle,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-
-
 type SizingMode = "wrap" | "fixed";
 type PlatformGuard = "all" | "android-only" | "ios-only";
 type DeviceGuard = "any" | "phone-only" | "tablet-only";
-
 type NhModalProps = {
   visible: boolean;
   onClose: () => void;
-
   title?: string | React.ReactNode;
   hint?: string | React.ReactNode | Array<string | React.ReactNode>;
   headerRight?: React.ReactNode;
-
   heightPercent?: number;
   dimBackground?: boolean;
   backdropColor?: string;
   sheetStyle?: ViewStyle;
   children: React.ReactNode;
-
   sizing?: SizingMode;
   platformGuard?: PlatformGuard;
   deviceGuard?: DeviceGuard;
-
   debug?: boolean;
   debugLabel?: string;
   debugOverlay?: boolean;
 };
-
 function useIsTablet() {
   const scr = Dimensions.get("screen");
   const shortest = Math.min(scr.width, scr.height);
   return scr.width >= 900 || shortest >= 600;
 }
-
 function useDimModalBridge(active: boolean) {
   const prev = React.useRef(false);
   React.useEffect(() => {
@@ -84,7 +75,6 @@ function useDimModalBridge(active: boolean) {
     };
   }, [active]);
 }
-
 export default function NhModal({
   visible,
   onClose,
@@ -96,40 +86,31 @@ export default function NhModal({
   backdropColor = "rgba(0,0,0,0.45)",
   sheetStyle,
   children,
-
   sizing = "wrap",
   platformGuard = "all",
   deviceGuard = "any",
-
   debug = false,
   debugLabel = "NhModal",
   debugOverlay = false,
 }: NhModalProps) {
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
-
   const isTablet = useIsTablet();
   const SCREEN_H = Dimensions.get("window").height;
   const capRatio = Math.min(1, Math.max(0.5, heightPercent));
   const CAP_H = Math.round(SCREEN_H * capRatio);
-
   const translateY = useRef(new Animated.Value(SCREEN_H)).current;
   const fade = useRef(new Animated.Value(0)).current;
-
   const [mounted, setMounted] = useState(visible);
-
   const [headerH, setHeaderH] = useState(0);
   const [hintsH, setHintsH] = useState(0);
   const [contentViewportH, setContentViewportH] = useState(0);
   const layoutPassRef = useRef(0);
-
   const hintsArr = useMemo(
     () => (hint == null ? [] : Array.isArray(hint) ? hint : [hint]),
     [hint]
   );
-
   useDimModalBridge(visible && dimBackground);
-
   const effectiveSizing: SizingMode = useMemo(() => {
     let mode: SizingMode = sizing;
     if (platformGuard === "android-only" && Platform.OS !== "android")
@@ -139,13 +120,10 @@ export default function NhModal({
     if (deviceGuard === "tablet-only" && !isTablet) mode = "wrap";
     return mode;
   }, [sizing, platformGuard, deviceGuard, isTablet]);
-
   const contentMaxH = Math.max(1, CAP_H - insets.bottom - headerH - hintsH);
-
   const dbg = (...args: any[]) => {
     if (debug) console.log(`[${debugLabel}]`, ...args);
   };
-
   const runOpen = () => {
     Animated.parallel([
       Animated.timing(translateY, {
@@ -162,7 +140,6 @@ export default function NhModal({
       }),
     ]).start();
   };
-
   const runClose = () => {
     Animated.parallel([
       Animated.timing(translateY, {
@@ -184,7 +161,6 @@ export default function NhModal({
       }
     });
   };
-
   useEffect(() => {
     if (visible) {
       setMounted(true);
@@ -194,9 +170,7 @@ export default function NhModal({
       runClose();
     }
   }, [visible]);
-
   if (!mounted) return null;
-
   const onSheetLayout = (e: LayoutChangeEvent) => {
     layoutPassRef.current += 1;
     dbg("onSheetLayout", {
@@ -204,7 +178,6 @@ export default function NhModal({
       pass: layoutPassRef.current,
     });
   };
-
   return (
     <Modal
       visible
@@ -226,7 +199,6 @@ export default function NhModal({
             tint="dark"
             style={StyleSheet.absoluteFill}
           />
-
           <LinearGradient
             colors={[
               "rgba(0,0,0,0)",
@@ -239,9 +211,7 @@ export default function NhModal({
           />
         </Animated.View>
       )}
-
       <Pressable style={StyleSheet.absoluteFill} onPress={runClose} />
-
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         style={StyleSheet.absoluteFill}
@@ -288,7 +258,6 @@ export default function NhModal({
                   <Feather name="x" size={18} color={colors.txt} />
                 </Pressable>
               </View>
-
               {hintsArr.length > 0 && (
                 <View
                   onLayout={(e) =>
@@ -312,7 +281,6 @@ export default function NhModal({
               )}
             </>
           )}
-
           <View
             onLayout={(e) =>
               setContentViewportH(Math.round(e.nativeEvent.layout.height))
@@ -325,7 +293,6 @@ export default function NhModal({
           >
             {children}
           </View>
-
           {debugOverlay && (
             <View style={styles.debugBadge}>
               <Text style={styles.debugText}>
@@ -338,7 +305,6 @@ export default function NhModal({
     </Modal>
   );
 }
-
 const styles = StyleSheet.create({
   sheet: {
     position: "absolute",
@@ -368,17 +334,14 @@ const styles = StyleSheet.create({
   },
   title: { fontSize: 18, fontWeight: "800" },
   closeIcon: { position: "absolute", right: 8, top: 8, padding: 6 },
-
   hintsWrap: { paddingHorizontal: 12, paddingVertical: 8, gap: 6 },
   hintRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-
   contentBox: {
     minHeight: 1,
     flexShrink: 1,
     alignSelf: "stretch",
     overflow: "hidden",
   },
-
   debugBadge: {
     position: "absolute",
     left: 8,

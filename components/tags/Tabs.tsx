@@ -1,14 +1,11 @@
-﻿
 import { useTheme } from "@/lib/ThemeContext";
 import { useI18n } from "@/lib/i18n/I18nContext";
 import React from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { MainTab } from "./types";
-
 export function Tabs({ tab, setTab }: { tab: MainTab; setTab: (t: MainTab) => void }) {
   const { colors } = useTheme();
   const { t } = useI18n();
-
   return (
     <View style={[styles.tabs, { marginVertical: 8 }]}>
       {(["all", "favs", "collections"] as MainTab[]).map((tKey) => {
@@ -19,7 +16,6 @@ export function Tabs({ tab, setTab }: { tab: MainTab; setTab: (t: MainTab) => vo
             : tKey === "favs"
             ? t("tags.favs")
             : t("tags.collectionsTab");
-
         return (
           <Pressable
             key={tKey}
@@ -46,7 +42,6 @@ export function Tabs({ tab, setTab }: { tab: MainTab; setTab: (t: MainTab) => vo
     </View>
   );
 }
-
 const styles = StyleSheet.create({
   tabs: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
   tabBtn: {
@@ -56,4 +51,3 @@ const styles = StyleSheet.create({
     borderWidth: 2,
   },
 });
-

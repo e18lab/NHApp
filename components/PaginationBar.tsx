@@ -1,5 +1,6 @@
-﻿import { useTheme } from "@/lib/ThemeContext";
+import { useTheme } from "@/lib/ThemeContext";
 import { useI18n } from "@/lib/i18n/I18nContext";
+import { scrollToTop } from "@/utils/scrollToTop";
 import { Ionicons } from "@expo/vector-icons";
 import Slider from "@react-native-community/slider";
 import * as Haptics from "expo-haptics";
@@ -25,6 +26,8 @@ type Props = {
   totalPages: number;
   onChange: (page: number) => void;
   onRequestScrollTop?: () => void;
+  scrollRef?: React.RefObject<any> | null;
+  hideWhenInfiniteScroll?: boolean;
 };
 
 export default function PaginationBar({
@@ -32,6 +35,8 @@ export default function PaginationBar({
   totalPages,
   onChange,
   onRequestScrollTop,
+  scrollRef,
+  hideWhenInfiniteScroll = false,
 }: Props) {
   const { colors } = useTheme();
   const { t } = useI18n();
@@ -43,6 +48,7 @@ export default function PaginationBar({
   const sheetY = useRef(new Animated.Value(0)).current;
 
   if (totalPages <= 1) return null;
+  if (hideWhenInfiniteScroll) return null;
 
   const animateTap = (to: number) =>
     Animated.spring(scale, { toValue: to, useNativeDriver: true }).start();
@@ -50,6 +56,7 @@ export default function PaginationBar({
   const commit = (next: number) => {
     const page = Math.max(1, Math.min(totalPages, Math.round(next)));
     if (page === currentPage) return;
+    scrollToTop(scrollRef);
     onRequestScrollTop?.();
     onChange(page);
   };

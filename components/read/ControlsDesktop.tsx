@@ -1,47 +1,21 @@
 import React from "react";
 import { StyleSheet, View } from "react-native";
-import { IconBtn, ToggleBtn } from "./Buttons";
+import { IconBtn } from "./Buttons";
 
 export function ControlsDesktop({
   colors,
-  canDual,
-  settings,
-  setOrientation,
-  toggleDual,
-  toggleFit,
-  tapFlipEnabled,
-  toggleTapFlip,
-  handSwap,
-  toggleHandSwap,
-  inspect,
-  toggleInspect,
   jumpPrev,
   jumpNext,
   onBack,
-  isSingleFrame,
+  onOpenSettings,
   continuous,
   toggleContinuous,
 }: {
   colors: any;
-  canDual: boolean;
-  settings: {
-    orientation: "vertical" | "horizontal";
-    dualInLandscape: boolean;
-    fit: "contain" | "cover";
-  };
-  setOrientation: (o: "vertical" | "horizontal") => void;
-  toggleDual: () => void;
-  toggleFit: () => void;
-  tapFlipEnabled: boolean;
-  toggleTapFlip: () => void;
-  handSwap: boolean;
-  toggleHandSwap: () => void;
-  inspect: boolean;
-  toggleInspect: () => void;
   jumpPrev: () => void;
   jumpNext: () => void;
   onBack: () => void;
-  isSingleFrame: boolean;
+  onOpenSettings: () => void;
   continuous: boolean;
   toggleContinuous: () => void;
 }) {
@@ -58,12 +32,10 @@ export function ControlsDesktop({
           name="corner-up-left"
           color={colors.searchTxt}
         />
-        <ToggleBtn
-          active={true}
-          onToggle={toggleContinuous}
+        <IconBtn
+          onPress={toggleContinuous}
           name="align-justify"
-          activeColor={colors.accent}
-          color={colors.searchTxt}
+          color={colors.accent}
         />
       </View>
     );
@@ -92,59 +64,9 @@ export function ControlsDesktop({
         color={colors.searchTxt}
       />
       <View style={[styles.divider, { backgroundColor: colors.page }]} />
-      <ToggleBtn
-        active={tapFlipEnabled}
-        onToggle={toggleTapFlip}
-        name="loader"
-        activeColor={colors.accent}
-        color={colors.searchTxt}
-      />
-      <ToggleBtn
-        active={handSwap}
-        onToggle={toggleHandSwap}
-        name="repeat"
-        activeColor={colors.accent}
-        color={colors.searchTxt}
-      />
       <IconBtn
-        onPress={() =>
-          setOrientation(
-            settings.orientation === "vertical" ? "horizontal" : "vertical"
-          )
-        }
-        name={
-          settings.orientation === "vertical" ? "arrow-down" : "arrow-right"
-        }
-        color={colors.searchTxt}
-      />
-      {canDual && (
-        <ToggleBtn
-          active={settings.dualInLandscape}
-          onToggle={toggleDual}
-          name="layout"
-          activeColor={colors.accent}
-          color={colors.searchTxt}
-        />
-      )}
-      <IconBtn
-        onPress={toggleFit}
-        name={settings.fit === "contain" ? "maximize" : "minimize"}
-        color={colors.searchTxt}
-      />
-      {isSingleFrame && (
-        <ToggleBtn
-          active={inspect}
-          onToggle={toggleInspect}
-          name="search"
-          activeColor={colors.accent}
-          color={colors.searchTxt}
-        />
-      )}
-      <ToggleBtn
-        active={false}
-        onToggle={toggleContinuous}
-        name="align-justify"
-        activeColor={colors.accent}
+        onPress={onOpenSettings}
+        name="settings"
         color={colors.searchTxt}
       />
     </View>

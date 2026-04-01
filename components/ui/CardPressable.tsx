@@ -9,7 +9,6 @@ import {
   View,
   ViewStyle,
 } from "react-native";
-
 export type CardPressableProps = {
   children: React.ReactNode;
   radius?: number;
@@ -26,7 +25,6 @@ export type CardPressableProps = {
   animationDuration?: number;
   onFeedback?: boolean;
 };
-
 export const CardPressable = React.memo(function CardPressable({
   children,
   radius = 14,
@@ -45,7 +43,6 @@ export const CardPressable = React.memo(function CardPressable({
 }: CardPressableProps) {
   const overlay = overlayColor ?? "rgba(255,255,255,0.10)";
   const animatedScale = useRef(new Animated.Value(1)).current;
-
   const animateScale = (toValue: number) => {
     Animated.timing(animatedScale, {
       toValue,
@@ -53,26 +50,21 @@ export const CardPressable = React.memo(function CardPressable({
       useNativeDriver: true,
     }).start();
   };
-
   const handlePressIn = () => {
     if (onFeedback && !disabled) {
       Vibration.vibrate(10);
     }
     animateScale(pressedScale);
   };
-
   const handlePressOut = () => {
     animateScale(1);
   };
-
   const handlePress = () => {
     onPress?.();
   };
-
   const scaleStyle = {
     transform: [{ scale: animatedScale }],
   };
-
   return (
     <View style={[{ borderRadius: radius, overflow: "hidden" }, style]}>
       <Pressable

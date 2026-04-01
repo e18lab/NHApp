@@ -1,12 +1,6 @@
-﻿
-
-
 import type { Locale as DFLocale } from "date-fns";
-
 export type UiLocale = "en" | "ru" | "zh" | "ja";
-
 type UnitKey = "year" | "month" | "day" | "hour" | "minute" | "second";
-
 const translations: Record<
   UiLocale,
   {
@@ -64,7 +58,6 @@ const translations: Record<
     ago: "前",
   },
 };
-
 function pluralRu(n: number, forms: [string, string, string]) {
   return forms[
     n % 10 === 1 && n % 100 !== 11
@@ -74,16 +67,12 @@ function pluralRu(n: number, forms: [string, string, string]) {
       : 2
   ];
 }
-
-
 function normalizeLocale(loc?: UiLocale | DFLocale): UiLocale {
   if (!loc) return "en";
   if (typeof loc === "string") {
-    
     if (loc === "zh") return "zh";
     return (["en", "ru", "zh", "ja"].includes(loc) ? loc : "en") as UiLocale;
   }
-  
   const code = (loc as any)?.code as string | undefined;
   if (code) {
     const lower = code.toLowerCase();
@@ -94,17 +83,14 @@ function normalizeLocale(loc?: UiLocale | DFLocale): UiLocale {
   }
   return "en";
 }
-
 function toDate(input: string | number | Date): Date {
   if (input instanceof Date) return input;
   if (typeof input === "string") {
     const t = Date.parse(input);
     return Number.isFinite(t) ? new Date(t) : new Date();
   }
-  
   return new Date(input < 1e12 ? input * 1000 : input);
 }
-
 export function timeAgo(
   d: string | number | Date,
   locale?: UiLocale | DFLocale
@@ -113,7 +99,6 @@ export function timeAgo(
   const s = Math.max(0, Math.floor((Date.now() - date.getTime()) / 1000));
   const l = normalizeLocale(locale);
   const tr = translations[l];
-
   const table: [UnitKey, number][] = [
     ["year", 31536000],
     ["month", 2592000],
@@ -122,7 +107,6 @@ export function timeAgo(
     ["minute", 60],
     ["second", 1],
   ];
-
   for (const [unit, secs] of table) {
     if (s >= secs) {
       const v = Math.floor(s / secs);
@@ -132,10 +116,8 @@ export function timeAgo(
       if (l === "zh" || l === "ja") {
         return `${v}${tr.units[unit][0]}${tr.ago}`;
       }
-      
       return `${v} ${tr.units[unit][v === 1 ? 0 : 1]} ${tr.ago}`;
     }
   }
   return tr.justNow;
 }
-

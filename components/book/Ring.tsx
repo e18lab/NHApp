@@ -1,7 +1,6 @@
 import { useTheme } from "@/lib/ThemeContext";
 import React from "react";
 import Svg, { Circle as SvgCircle } from "react-native-svg";
-
 export const Ring = ({
   progress,
   size = 22,
@@ -11,7 +10,6 @@ export const Ring = ({
   const c = 2 * Math.PI * r;
   const off = c * (1 - progress);
   const { colors } = useTheme();
-
   return (
     <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
       <SvgCircle

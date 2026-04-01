@@ -1,5 +1,4 @@
 import { useCallback, useRef } from "react";
-
 export const useThrottle = <T extends any[]>(
   fn: (...args: T) => void,
   ms: number

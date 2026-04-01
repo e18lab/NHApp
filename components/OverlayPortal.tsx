@@ -1,9 +1,7 @@
 ﻿import React, { createContext, ReactNode, useContext, useState } from "react";
 import { StyleSheet, View } from "react-native";
-
 type Ctx = { show: (node: ReactNode) => void; hide: () => void };
 const OverlayCtx = createContext<Ctx>({ show: () => {}, hide: () => {} });
-
 export const OverlayPortalProvider = ({
   children,
 }: {
@@ -23,5 +21,4 @@ export const OverlayPortalProvider = ({
     </OverlayCtx.Provider>
   );
 };
-
 export const useOverlayPortal = () => useContext(OverlayCtx);

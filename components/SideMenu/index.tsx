@@ -1,4 +1,15 @@
-﻿import { Feather } from "@expo/vector-icons";
+import { getGallery, getRandomGalleryId, initCdn } from "@/api/v2";
+import { galleryToBook } from "@/api/v2/compat";
+import { resolveImageUrl } from "@/api/v2/config";
+import { CardPressable } from "@/components/ui/CardPressable";
+import { IconBtn } from "@/components/ui/IconBtn";
+import { Section } from "@/components/ui/Section";
+import { LIBRARY_MENU, type MenuItem as LibraryMenuItem } from "@/constants/Menu";
+import { useAuthBridge } from "@/hooks/useAuthBridge";
+import { useTheme } from "@/lib/ThemeContext";
+import { useI18n } from "@/lib/i18n/I18nContext";
+import type { MenuRoute } from "@/types/routes";
+import { Feather } from "@expo/vector-icons";
 import { usePathname, useRouter } from "expo-router";
 import React from "react";
 import {
@@ -14,37 +25,19 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-
-import { getRandomBook } from "@/api/nhentai";
-import { LIBRARY_MENU } from "@/constants/Menu";
-import { useAuthBridge } from "@/hooks/useAuthBridge";
-import { useTheme } from "@/lib/ThemeContext";
-import { useI18n } from "@/lib/i18n/I18nContext";
-import type { MenuRoute } from "@/types/routes";
 import { LoginModal } from "./LoginModal";
-
-import { CardPressable } from "@/components/ui/CardPressable";
-import { IconBtn } from "@/components/ui/IconBtn";
-import { Section } from "@/components/ui/Section";
-
 const M3_RADIUS = 12;
 const M3_SPACING = 12;
 const M3_RAIL_ITEM_SIZE = 48;
-
 const PARTICLE_COUNT = 8;
 const DISCORD_URL = "https://discord.gg/VnxH7yfPqf";
-
 type SideMenuProps = {
   closeDrawer: () => void;
   fullscreen: boolean;
-
   isTabletPermanent?: boolean;
-
   collapsed?: boolean;
-
   onToggleCollapsed?: () => void;
 };
-
 type ParticleConfig = {
   dx: number;
   dy: number;
@@ -55,37 +48,27 @@ type ParticleConfig = {
   startX: number;
   startY: number;
 };
-
 function randomBetween(min: number, max: number): number {
   return min + Math.random() * (max - min);
 }
-
 function createRandomParticleConfig(layout: {
   width: number;
   height: number;
 }): ParticleConfig {
   const { width, height } = layout;
-
   const marginX = width * 0.1;
   const marginY = height * 0.2;
-
   const startX = randomBetween(marginX, width - marginX);
   const startY = randomBetween(marginY, height - marginY);
-
   const moveAngle = randomBetween(0, Math.PI * 2);
-
   const base = Math.min(width, height);
   const distance = randomBetween(base * 0.25, base * 0.7);
-
   const dx = Math.cos(moveAngle) * distance;
   const dy = Math.sin(moveAngle) * distance;
-
   const duration = randomBetween(900, 1500);
   const delay = randomBetween(0, 900);
-
   const startScale = randomBetween(0.5, 0.9);
   const endScale = randomBetween(1.1, 1.6);
-
   return {
     dx,
     dy,
@@ -97,7 +80,6 @@ function createRandomParticleConfig(layout: {
     startY,
   };
 }
-
 export default function SideMenu({
   closeDrawer,
   fullscreen,
@@ -111,35 +93,20 @@ export default function SideMenu({
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
-
-  const {
-    me,
-    doLogout,
-    canUseNativeJar,
-    isExpoGo,
-    wvBusy,
-    setWvBusy,
-    csrfInput,
-    setCsrfInput,
-    sessInput,
-    setSessInput,
-    applyManual,
-    refreshTokensFromJar,
-    fetchMeAndMaybeClose,
-    handleNavChange,
-    onWvMessage,
-  } = useAuthBridge(t);
-
+  const { me, doLogout, fetchMeAndMaybeClose } = useAuthBridge(t);
   const [randomLoading, setRandomLoading] = React.useState(false);
   const [loginVisible, setLoginVisible] = React.useState(false);
   React.useEffect(() => {
-    if (loginVisible && me) setLoginVisible(false);
+    console.log("[SideMenu] me changed:", me ? { id: me.id, username: me.username } : null);
+  }, [me]);
+  React.useEffect(() => {
+    if (loginVisible && me) {
+      console.log("[SideMenu] Closing login modal because me is set");
+      setLoginVisible(false);
+    }
   }, [loginVisible, me]);
-
   const isLandscape = width > height;
-
   const isRail = isTabletPermanent && isLandscape && collapsed;
-
   const TOKENS = React.useMemo(
     () => ({
       padX: isRail ? 8 : M3_SPACING,
@@ -155,14 +122,11 @@ export default function SideMenu({
     }),
     [isLandscape, isRail]
   );
-
   const dynamicTop = fullscreen ? 8 : 8;
   const loggedIn = !!me;
-
   const ripplePrimary = colors.accent + "A0";
   const rippleItem = colors.accent + "44";
   const overlaySoft = colors.sub + "10";
-
   const goTo = React.useCallback(
     (route: MenuRoute) => {
       closeDrawer();
@@ -170,12 +134,14 @@ export default function SideMenu({
     },
     [closeDrawer, router]
   );
-
   const goRandom = React.useCallback(async () => {
     if (randomLoading) return;
     try {
       setRandomLoading(true);
-      const b = await getRandomBook();
+      await initCdn();
+      const randomId = await getRandomGalleryId();
+      const g = await getGallery(randomId);
+      const b = galleryToBook(g);
       closeDrawer();
       router.push({
         pathname: "/book/[id]",
@@ -185,14 +151,12 @@ export default function SideMenu({
       setRandomLoading(false);
     }
   }, [randomLoading, closeDrawer, router]);
-
   const goToDiscord = React.useCallback(() => {
     closeDrawer();
     Linking.openURL(DISCORD_URL).catch((err) => {
       console.warn("Failed to open Discord link", err);
     });
   }, [closeDrawer]);
-
   const goToProfile = React.useCallback(() => {
     if (!me) return;
     const slug = (me.slug || me.username || String(me.id || "")).toString();
@@ -202,42 +166,30 @@ export default function SideMenu({
     });
     closeDrawer();
   }, [me, router, closeDrawer]);
-
   const scrollEnabled = true;
-
   const [discordLayout, setDiscordLayout] = React.useState<{
     width: number;
     height: number;
   } | null>(null);
-
   const particleValues = React.useRef(
     Array.from({ length: PARTICLE_COUNT }, () => new Animated.Value(0))
   ).current;
-
   const [particleConfigs, setParticleConfigs] = React.useState<
     ParticleConfig[]
   >([]);
-
   React.useEffect(() => {
     if (!discordLayout) return;
-
     let cancelled = false;
-
     const configs: ParticleConfig[] = Array.from(
       { length: PARTICLE_COUNT },
       () => createRandomParticleConfig(discordLayout)
     );
-
     setParticleConfigs(configs);
-
     particleValues.forEach((v, index) => {
       const cfg = configs[index];
-
       const loop = () => {
         if (cancelled) return;
-
         v.setValue(0);
-
         Animated.timing(v, {
           toValue: 1,
           duration: cfg.duration,
@@ -250,37 +202,38 @@ export default function SideMenu({
           }
         });
       };
-
       loop();
     });
-
     return () => {
       cancelled = true;
-      // @ts-ignore
       particleValues.forEach((v: any) => {
         if (v.stopAnimation) v.stopAnimation();
       });
     };
   }, [discordLayout, particleValues]);
-
   const MenuItem = ({
     item,
     active,
     disabled,
   }: {
-    item: { route: MenuRoute; icon: string; labelKey: string };
+    item: LibraryMenuItem;
     active: boolean;
     disabled: boolean;
   }) => {
+    const locked = item.locked === true;
     const tint = disabled
       ? colors.sub
       : active
       ? colors.accent
       : colors.menuTxt;
-
-    const tileBg = active ? colors.accent + "1A" : "transparent";
+    const tileBg = active && !locked ? colors.accent + "1A" : "transparent";
     const fontWeight = active ? "600" : "500";
-
+    const NEW_BADGE_UNTIL_MS = Date.parse("2026-05-01T00:00:00.000Z");
+    const showNewBadge =
+      Date.now() < NEW_BADGE_UNTIL_MS &&
+      item.route === "/recommendations" &&
+      !locked &&
+      !isRail;
     return (
       <CardPressable
         ripple={rippleItem}
@@ -312,24 +265,67 @@ export default function SideMenu({
               justifyContent: "center",
             }}
           >
-            <Feather name={item.icon as any} size={TOKENS.icon} color={tint} />
+            <Feather
+              name={(locked ? "lock" : item.icon) as any}
+              size={TOKENS.icon}
+              color={tint}
+            />
           </View>
-
           {!isRail && (
             <>
-              <Text
-                style={{
-                  color: tint,
-                  fontSize: TOKENS.itemTextSize,
-                  fontWeight: fontWeight as any,
-                  letterSpacing: 0.1,
-                  flex: 1,
-                }}
-                numberOfLines={1}
-              >
-                {t(item.labelKey)}
-              </Text>
-              {disabled ? (
+              <View style={{ flex: 1 }}>
+                <Text
+                  style={{
+                    color: tint,
+                    fontSize: TOKENS.itemTextSize,
+                    fontWeight: fontWeight as any,
+                    letterSpacing: 0.1,
+                  }}
+                  numberOfLines={1}
+                >
+                  {t(item.labelKey)}
+                </Text>
+                {locked ? (
+                  <Text
+                    style={{
+                      color: colors.sub,
+                      fontSize: 11,
+                      fontWeight: "600",
+                      marginTop: 2,
+                      letterSpacing: 0.2,
+                    }}
+                    numberOfLines={1}
+                  >
+                    {t("menu.comingSoon")}
+                  </Text>
+                ) : null}
+              </View>
+              {showNewBadge ? (
+                <View
+                  style={{
+                    paddingHorizontal: 8,
+                    paddingVertical: 3,
+                    borderRadius: 999,
+                    backgroundColor: colors.accent,
+                    borderWidth: StyleSheet.hairlineWidth,
+                    borderColor: colors.accent + "AA",
+                    marginRight: 6,
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: colors.bg,
+                      fontSize: 10,
+                      fontWeight: "800",
+                      letterSpacing: 0.6,
+                    }}
+                    numberOfLines={1}
+                  >
+                    {t("menu.new")}
+                  </Text>
+                </View>
+              ) : null}
+              {locked ? null : disabled ? (
                 <Feather name="lock" size={14} color={colors.sub} />
               ) : (
                 <Feather name="chevron-right" size={18} color={tint} />
@@ -340,7 +336,6 @@ export default function SideMenu({
       </CardPressable>
     );
   };
-
   return (
     <View style={[styles.root, { backgroundColor: colors.menuBg }]}>
       <ScrollView
@@ -386,7 +381,6 @@ export default function SideMenu({
             >
               <Feather name="book-open" size={18} color={colors.accent} />
             </View>
-
             {!isRail && (
               <View>
                 <Text
@@ -413,7 +407,6 @@ export default function SideMenu({
             )}
           </View>
         </View>
-
         {!isRail && (
           <Section
             title={t("menu.section.library")}
@@ -423,22 +416,22 @@ export default function SideMenu({
             style={{ marginBottom: TOKENS.gap / 2, marginTop: TOKENS.gap / 2 }}
           />
         )}
-
         <View style={{ gap: TOKENS.gap }}>
           {LIBRARY_MENU.map((item) => {
             const active = pathname?.startsWith(item.route);
-            const disabled = !loggedIn && item.route === "/favoritesOnline";
+            const disabled =
+              (!loggedIn && item.route === "/favoritesOnline") ||
+              item.locked === true;
             return (
               <MenuItem
                 key={item.route}
-                item={item as any}
+                item={item}
                 active={active}
                 disabled={disabled}
               />
             );
           })}
         </View>
-
         <CardPressable
           ripple={ripplePrimary}
           overlayColor={"transparent"}
@@ -481,7 +474,6 @@ export default function SideMenu({
             )}
           </View>
         </CardPressable>
-
         <View
           style={{
             height: StyleSheet.hairlineWidth,
@@ -489,7 +481,6 @@ export default function SideMenu({
             marginVertical: isRail ? 12 : 16,
           }}
         />
-
         <CardPressable
           ripple={rippleItem}
           overlayColor={overlaySoft}
@@ -523,27 +514,22 @@ export default function SideMenu({
               particleConfigs.length === PARTICLE_COUNT &&
               particleConfigs.map((cfg, index) => {
                 const progress = particleValues[index];
-
                 const translateX = progress.interpolate({
                   inputRange: [0, 1],
                   outputRange: [0, cfg.dx],
                 });
-
                 const translateY = progress.interpolate({
                   inputRange: [0, 1],
                   outputRange: [0, cfg.dy],
                 });
-
                 const scale = progress.interpolate({
                   inputRange: [0, 1],
                   outputRange: [cfg.startScale, cfg.endScale],
                 });
-
                 const opacity = progress.interpolate({
                   inputRange: [0, 0.15, 0.7, 1],
                   outputRange: [0, 1, 1, 0],
                 });
-
                 const size = 6 + ((index * 2) % 6);
                 const colorVariant =
                   index % 3 === 0
@@ -551,7 +537,6 @@ export default function SideMenu({
                     : index % 3 === 1
                     ? colors.accent + "CC"
                     : colors.accent + "AA";
-
                 return (
                   <Animated.View
                     key={index}
@@ -568,7 +553,6 @@ export default function SideMenu({
                   </Animated.View>
                 );
               })}
-
             <View
               style={{
                 width: isRail ? M3_RAIL_ITEM_SIZE : TOKENS.icon,
@@ -613,10 +597,8 @@ export default function SideMenu({
             )}
           </View>
         </CardPressable>
-
         <View style={{ height: 8 }} />
       </ScrollView>
-
       <View
         style={[
           styles.footer,
@@ -648,7 +630,7 @@ export default function SideMenu({
               >
                 {me?.avatar_url ? (
                   <Image
-                    source={{ uri: me.avatar_url }}
+                    source={{ uri: resolveImageUrl(me.avatar_url) }}
                     style={{
                       width: 36,
                       height: 36,
@@ -684,7 +666,7 @@ export default function SideMenu({
               >
                 {me?.avatar_url ? (
                   <Image
-                    source={{ uri: me.avatar_url }}
+                    source={{ uri: resolveImageUrl(me.avatar_url) }}
                     style={{
                       width: 40,
                       height: 40,
@@ -717,18 +699,16 @@ export default function SideMenu({
                   >
                     {me?.username}
                   </Text>
-                  {!!me?.profile_url && (
-                    <Text
-                      style={{
-                        color: colors.sub,
-                        fontSize: 10,
-                        fontWeight: "400",
-                      }}
-                      numberOfLines={1}
-                    >
-                      {t("menu.profile")}
-                    </Text>
-                  )}
+                  <Text
+                    style={{
+                      color: colors.sub,
+                      fontSize: 10,
+                      fontWeight: "400",
+                    }}
+                    numberOfLines={1}
+                  >
+                    {t("menu.profile")}
+                  </Text>
                 </View>
                 <IconBtn
                   ripple={rippleItem}
@@ -780,30 +760,16 @@ export default function SideMenu({
           </CardPressable>
         )}
       </View>
-
       <LoginModal
         visible={loginVisible}
         onRequestClose={() => setLoginVisible(false)}
         colors={colors}
         t={t}
-        canUseNativeJar={canUseNativeJar}
-        isExpoGo={isExpoGo}
-        wvBusy={wvBusy}
-        setWvBusy={setWvBusy}
-        csrfInput={csrfInput}
-        setCsrfInput={setCsrfInput}
-        sessInput={sessInput}
-        setSessInput={setSessInput}
-        applyManual={applyManual}
-        refreshTokensFromJar={refreshTokensFromJar}
         fetchMeAndMaybeClose={fetchMeAndMaybeClose}
-        handleNavChange={handleNavChange}
-        onWvMessage={onWvMessage}
       />
     </View>
   );
 }
-
 const styles = StyleSheet.create({
   root: { flex: 1 },
   headerRow: {

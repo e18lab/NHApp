@@ -22,7 +22,6 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
-
 import NhModal from "@/components/nhModal";
 import { CollectionsEditor } from "@/components/tags/CollectionsEditor";
 import { CollectionsList } from "@/components/tags/CollectionsList";
@@ -30,7 +29,6 @@ import { SearchBar } from "@/components/tags/SearchBar";
 import { SidebarSelected } from "@/components/tags/SidebarSelected";
 import { Tabs } from "@/components/tags/Tabs";
 import { TagRow } from "@/components/tags/TagRow";
-
 import {
   rusOf,
   scoreByQuery,
@@ -46,7 +44,6 @@ import {
   TagMode,
 } from "@/components/tags/types";
 import { useFavs } from "@/components/tags/useFavs";
-
 type TagsDb = {
   tags: TagEntry[];
   artists: TagEntry[];
@@ -55,14 +52,12 @@ type TagsDb = {
   groups: TagEntry[];
 };
 const db = raw as TagsDb;
-
 const prepare = (t: TagEntry): TagItem => ({
   ...t,
   type: toPlural(String(t.type)),
   enLow: t.name.toLowerCase(),
   ruLow: rusOf(t.name).toLowerCase(),
 });
-
 const PRE_SORTED: Record<TagKind, TagEntry[]> = {
   tags: [...db.tags].sort((a, b) => b.count - a.count),
   artists: [...db.artists].sort((a, b) => b.count - a.count),
@@ -70,7 +65,6 @@ const PRE_SORTED: Record<TagKind, TagEntry[]> = {
   parodies: [...db.parodies].sort((a, b) => b.count - a.count),
   groups: [...db.groups].sort((a, b) => b.count - a.count),
 };
-
 const ALL: TagItem[] = [
   ...PRE_SORTED.tags.map(prepare),
   ...PRE_SORTED.artists.map(prepare),
@@ -78,10 +72,8 @@ const ALL: TagItem[] = [
   ...PRE_SORTED.parodies.map(prepare),
   ...PRE_SORTED.groups.map(prepare),
 ];
-
 const findTag = (typePlural: string, name: string) =>
   ALL.find((x) => x.type === toPlural(typePlural) && x.name === name);
-
 const useResponsive = () => {
   const win = useWindowDimensions();
   const scr = Dimensions.get("screen");
@@ -89,12 +81,10 @@ const useResponsive = () => {
   const isTablet = scr.width >= 900 || shortest >= 600;
   return { isTablet, width: win.width };
 };
-
 export default function TagsScreen() {
   const { colors } = useTheme();
   const { t } = useI18n();
   const { isTablet } = useResponsive();
-
   const {
     filters,
     includes,
@@ -105,7 +95,6 @@ export default function TagsScreen() {
     epoch,
     filtersReady,
   } = useFilterTags();
-
   const {
     collections,
     createCollection,
@@ -113,16 +102,13 @@ export default function TagsScreen() {
     deleteCollection,
     replaceCollectionItems,
   } = useTagLibrary();
-
   const { isFav, toggleFav, favsHash } = useFavs();
-
   const globalModeMap = useMemo(() => {
     const m = new Map<string, TagMode>();
     includes.forEach((f) => m.set(`${f.type}:${f.name}`, "include"));
     excludes.forEach((f) => m.set(`${f.type}:${f.name}`, "exclude"));
     return m;
   }, [includes, excludes]);
-
   const [q, setQ] = useState("");
   const [qDebounced, setQDebounced] = useState("");
   useEffect(() => {
@@ -132,11 +118,8 @@ export default function TagsScreen() {
     );
     return () => clearTimeout(h);
   }, [q]);
-
   const [tab, setTab] = useState<MainTab>("all");
-
   const [draft, setDraft] = useState<Draft | null>(null);
-
   const buildList = useCallback((base: TagItem[], needle: string) => {
     if (!needle) return base.slice(0, 300);
     const filtered = base.filter(
@@ -158,13 +141,11 @@ export default function TagsScreen() {
     [qDebounced, isFav, buildList]
   );
   const activeList: TagItem[] = tab === "favs" ? listFavs : listAll;
-
   const filteredCollections = useMemo(() => {
     const n = qDebounced;
     if (!n) return collections;
     return collections.filter((c) => (c.name || "").toLowerCase().includes(n));
   }, [collections, qDebounced]);
-
   const cycleFull = useCallback(
     (src: {
       type: string;
@@ -178,7 +159,6 @@ export default function TagsScreen() {
     },
     [cycle]
   );
-
   const setGlobal = useCallback(
     (tItem: TagEntry, target: TagMode | undefined) => {
       const enriched =
@@ -187,14 +167,11 @@ export default function TagsScreen() {
           : (findTag(String(toPlural(String(tItem.type))), tItem.name) as
               | TagEntry
               | undefined) ?? tItem;
-
       const curr = globalModeMap.get(
         `${toSingular(String(enriched.type))}:${enriched.name}`
       );
       if (curr === target) return;
-
       const step = () => cycleFull(enriched as any);
-
       if (target === "include") {
         if (curr === undefined) step();
         else if (curr === "exclude") {
@@ -215,7 +192,6 @@ export default function TagsScreen() {
     },
     [globalModeMap, cycleFull]
   );
-
   const onTapTag = useCallback(
     (tItem: TagItem) => {
       const curr = globalModeMap.get(`${toSingular(tItem.type)}:${tItem.name}`);
@@ -225,13 +201,11 @@ export default function TagsScreen() {
     },
     [globalModeMap, setGlobal]
   );
-
   const modeFor = useCallback(
     (tItem: TagItem): TagMode | undefined =>
       globalModeMap.get(`${toSingular(tItem.type)}:${tItem.name}`),
     [globalModeMap]
   );
-
   const applyCollection = useCallback(
     (id: string) => {
       const col = collections.find((c) => c.id === id);
@@ -250,7 +224,6 @@ export default function TagsScreen() {
     },
     [collections, cycleFull]
   );
-
   const replaceWithCollection = useCallback(
     (id: string) => {
       clear();
@@ -258,7 +231,6 @@ export default function TagsScreen() {
     },
     [clear, applyCollection]
   );
-
   const createFromFilters = useCallback(() => {
     setDraft({
       id: "__new__",
@@ -271,7 +243,6 @@ export default function TagsScreen() {
     });
     setTab("collections");
   }, [filters, t]);
-
   const openEditor = useCallback(
     (id: string) => {
       const col = collections.find((c) => c.id === id);
@@ -289,12 +260,10 @@ export default function TagsScreen() {
     },
     [collections]
   );
-
   const newEmptyDraft = useCallback(() => {
     setDraft({ id: "__new__", name: t("collections.defaultName"), items: [] });
     setTab("collections");
   }, [t]);
-
   const saveDraft = useCallback(() => {
     if (!draft) return;
     if (draft.id === "__new__") {
@@ -312,7 +281,6 @@ export default function TagsScreen() {
       setDraft(null);
     }
   }, [draft, createCollection, renameCollection, replaceCollectionItems, t]);
-
   const migratedOnce = useRef(false);
   useEffect(() => {
     if (!filtersReady || migratedOnce.current) return;
@@ -330,7 +298,6 @@ export default function TagsScreen() {
     );
     if (!needMigration) return;
     migratedOnce.current = true;
-
     const snapshot = [...filters];
     clear();
     requestAnimationFrame(() => {
@@ -347,7 +314,6 @@ export default function TagsScreen() {
       }
     });
   }, [filtersReady, filters, clear, cycleFull]);
-
   const renderTag: ListRenderItem<TagItem> = ({ item }) => (
     <TagRow
       item={item}
@@ -358,14 +324,11 @@ export default function TagsScreen() {
       onRemove={modeFor(item) ? () => setGlobal(item, undefined) : undefined}
     />
   );
-
   const [showSheet, setShowSheet] = useState(false);
   const openSheet = useCallback(() => setShowSheet(true), []);
   const closeSheet = useCallback(() => setShowSheet(false), []);
-
   const scrollY = useRef(new Animated.Value(0)).current;
   const [maxScroll, setMaxScroll] = useState(0);
-
   const topOpacity = scrollY.interpolate({
     inputRange: [0, 8, 24],
     outputRange: [0, 0.4, 0.85],
@@ -384,7 +347,6 @@ export default function TagsScreen() {
       }),
     [maxScroll, scrollY]
   );
-
   const onTagListScroll = useCallback(
     (e: any) => {
       const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
@@ -397,12 +359,10 @@ export default function TagsScreen() {
     },
     [maxScroll, scrollY]
   );
-
   const placeholder =
     tab === "collections"
       ? t("tags.searchCollectionPlaceholder")
       : t("tags.searchPlaceholder");
-
   return (
     <View style={[styles.root, { backgroundColor: colors.bg }]}>
       <View
@@ -421,7 +381,6 @@ export default function TagsScreen() {
             />
           </View>
         )}
-
         <View style={styles.rightPane}>
           <View style={styles.searchRow}>
             <View style={{ flex: 1 }}>
@@ -432,7 +391,6 @@ export default function TagsScreen() {
                 onClear={() => setQ("")}
               />
             </View>
-
             {!isTablet && (
               <Pressable
                 onPress={openSheet}
@@ -454,9 +412,7 @@ export default function TagsScreen() {
               </Pressable>
             )}
           </View>
-
           <Tabs tab={tab} setTab={setTab} />
-
           {tab === "collections" ? (
             <View style={{ flex: 1 }}>
               <View
@@ -469,7 +425,6 @@ export default function TagsScreen() {
                   label={t("collections.createFromSelected")}
                 />
               </View>
-
               <CollectionsList
                 collections={filteredCollections}
                 onReplace={(id) => {
@@ -478,7 +433,6 @@ export default function TagsScreen() {
                 onEdit={openEditor}
                 onDelete={deleteCollection}
               />
-
               {draft && (
                 <CollectionsEditor
                   draft={draft}
@@ -536,7 +490,6 @@ export default function TagsScreen() {
                   scrollEventThrottle={16}
                   showsVerticalScrollIndicator
                 />
-
                 <Animated.View
                   pointerEvents="none"
                   style={[styles.fadeTop, { opacity: topOpacity }]}
@@ -564,7 +517,6 @@ export default function TagsScreen() {
           )}
         </View>
       </View>
-
       {!isTablet && (
         <NhModal
           visible={showSheet}
@@ -591,7 +543,6 @@ export default function TagsScreen() {
     </View>
   );
 }
-
 function ActionPrimary({
   onPress,
   label,
@@ -627,12 +578,10 @@ function ActionPrimary({
     </Pressable>
   );
 }
-
 const styles = StyleSheet.create({
   root: { flex: 1 },
   body: { flex: 1 },
   rightPane: { flex: 1, paddingHorizontal: 12, paddingBottom: 8 },
-
   searchRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -646,7 +595,6 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     maxWidth: 180,
   },
-
   searchSection: {
     flex: 1,
     borderRadius: 12,
@@ -658,7 +606,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
   },
-
   fadeTop: {
     position: "absolute",
     left: 0,
@@ -675,7 +622,6 @@ const styles = StyleSheet.create({
     height: 16,
     zIndex: 2,
   },
-
   closeIcon: {
     position: "absolute",
     right: 10,

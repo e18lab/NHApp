@@ -15,13 +15,27 @@
     "read": "阅读",
     "readAgain": "再读一次",
     "removeDownload": "删除下载",
-    "pages": "页数"
+    "removeDownloadConfirm": "要从设备中删除这本已下载的书吗？",
+    "pages": "页数",
+    "showAll": "显示全部"
   },
   "commentComposer": {
     "placeholder": "写评论…",
     "hint": {
       "needMore": "还差 {n} 个字符即可发送",
-      "captcha": "点击发送后会弹出验证码窗口，完成后评论会自动发送。"
+      "captcha": "点击发送后请完成验证码以发布评论。"
+    },
+    "status": {
+      "pow": "正在解决安全验证…",
+      "captcha": "请完成验证码…",
+      "posting": "正在发布评论…"
+    },
+    "captcha": {
+      "title": "人机验证",
+      "subtitle": "完成验证码以发布评论"
+    },
+    "error": {
+      "captchaUnavailable": "验证码暂不可用，请稍后再试。"
     }
   },
   "cloudflare": {
@@ -39,8 +53,23 @@
       "attempts": "尝试次数：{n}"
     }
   },
+  "toast": {
+    "errorTitle": "错误",
+    "httpErrorTitle": "HTTP {code}",
+    "httpErrorGeneric": "HTTP {code}",
+    "genericFailure": "无法完成该操作。",
+    "avatarUploadNotImplemented": "服务器端尚未实现头像上传功能。"
+  },
+  "bookcard": {
+    "collectingInfo": "信息收集中"
+  },
   "comments": {
     "title": "评论",
+    "totalCount": "共 {count} 条",
+    "sort": {
+      "newest": "最新优先",
+      "oldest": "最旧优先"
+    },
     "menu": {
       "translate": "翻译评论",
       "showOriginal": "显示原文",
@@ -85,7 +114,10 @@
     "delete": "删除",
     "close": "关闭",
     "hide": "隐藏",
-    "clearSelection": "清除选择"
+    "clearSelection": "清除选择",
+    "retry": "重试",
+    "loading": "加载中…",
+    "apply": "应用"
   },
   "explore": {
     "sort": {
@@ -95,43 +127,24 @@
       "popularToday": "今日热门",
       "popularWeek": "本周热门"
     },
-    "sortBy": "排序方式",
     "dateRange": "日期筛选",
-    "quickPeriod": "时间段",
-    "datePickerTitle": "日期选择",
-    "hintDatesActive": "日期筛选已启用。预设排序已隐藏。",
-    "hintPresets": "选择一个时间段或指定日期范围。",
-    "dateSearch": {
-      "windowInfo": "窗口： 索引 {start}…{end} ・ 项目 {total}",
-      "rangeEnd": "正在查找窗口结束位置…",
-      "rangeStart": "正在查找窗口起始位置…",
-      "loading": "正在加载…",
-      "done": "完成",
-      "fetch": "正在加载窗口页面…",
-      "meta": "正在准备请求…",
-      "probeSubtitle": "{which}: p={page} · {head} → {tail} {dir}",
-      "dirRight": "→ 向右",
-      "whichEnd": "结束",
-      "dirLeft": "← 向左",
-      "whichStart": "开始",
-      "dirHit": "✓ 命中",
-      "title": {
-        "done": "完成",
-        "rangeEnd": "正在查找窗口终点…",
-        "fetch": "正在加载窗口页面…",
-        "loading": "加载中…",
-        "rangeStart": "正在查找窗口起点…",
-        "meta": "正在准备请求…"
-      }
+    "date": {
+      "1h": "1小时",
+      "24h": "24小时",
+      "3d": "3天",
+      "7d": "一周",
+      "30d": "一个月",
+      "90d": "3个月",
+      "180d": "6个月",
+      "1y": "一年",
+      "customRange": "指定日期…",
+      "back": "返回",
+      "backToDateList": "返回日期列表",
+      "from": "从 (YYYY.MM.DD)",
+      "to": "到 (YYYY.MM.DD)",
+      "rangeHint": "输入格式 YYYY.MM.DD。搜索使用 uploaded:>Xd uploaded:<Yd。"
     },
-    "probe": {
-      "end": "结束",
-      "directionHit": "✓ 命中",
-      "directionRight": "→ 向右",
-      "directionLeft": "→ 向左",
-      "subtitle": "{which}：p={page} • {head} → {tail} {dir}",
-      "start": "开始"
-    },
+    "dateRangeCustom": "日期范围",
     "noResults": {
       "actions": {
         "resetDates": "重置日期",
@@ -152,24 +165,74 @@
     }
   },
   "historyNotFound": "历史为空 ¯\\_(ツ)_/¯",
+  "lobby": {
+    "peersTitle": "大厅中的设备",
+    "noPeers": "没有已连接的设备"
+  },
+  "profile": {
+    "edit": {
+      "title": "个人资料设置",
+      "button": "个人资料设置",
+      "electronOnly": "个人资料设置仅在桌面应用中可用。",
+      "loading": "加载中…",
+      "avatar": "头像",
+      "changeAvatar": "更换头像",
+      "removeAvatar": "删除头像",
+      "username": "用户名",
+      "email": "邮箱",
+      "about": "关于",
+      "favoriteTags": "收藏标签",
+      "theme": "网站主题",
+      "changePassword": "修改密码",
+      "oldPassword": "当前密码",
+      "newPassword": "新密码",
+      "newPasswordAgain": "新密码（再次输入）",
+      "blacklist": "黑名单",
+      "saved": "已保存",
+      "errorNetwork": "无法发送请求。请检查网络后重试，或在浏览器中打开 nhentai.net 修改个人资料。",
+      "notLoggedIn": "你尚未登录，请先登录 nhentai。",
+      "permissionTitle": "需要权限",
+      "permissionMessage": "选择头像需要访问相册权限。"
+    },
+    "blacklist": {
+      "title": "黑名单",
+      "tags": "标签",
+      "artists": "作者",
+      "parodies": "原作",
+      "characters": "角色",
+      "groups": "团体",
+      "languages": "语言",
+      "categories": "分类",
+      "save": "保存",
+      "addPlaceholder": "搜索…",
+      "loading": "加载中…",
+      "saved": "已保存",
+      "empty": "暂未添加",
+      "toRemove": "待删除",
+      "unsaved": "有未保存的更改",
+      "description": "管理隐藏的标签、作者等分类"
+    }
+  },
   "menu": {
     "downloaded": "已下载",
     "explore": "探索",
-    "favorites": "收藏",
+    "favorites": "书签",
     "history": "历史",
     "home": "首页",
     "random": "手气不错",
     "recommendations": "推荐",
+    "new": "新",
+    "comingSoon": "即将推出",
     "search": "搜索",
     "settings": "设置",
     "tags": "标签",
-    "profile": "个人中心",
+    "profile": "我的主页",
     "login": "登录",
     "section": {
       "library": "库"
     },
     "favoritesOnline": "在线收藏",
-    "brand": "NHAppAndroid",
+    "brand": "NHApp",
     "brandTag": "非官方",
     "characters": "角色",
     "discordJoin": "加入 Discord",
@@ -187,7 +250,34 @@
       "signedAs": "已以 {user} 身份登录。",
       "cookiesFailed": "无法同步 Cookie。"
     },
-    "sync": "同步"
+    "sync": "同步",
+    "form": {
+      "registerTitle": "创建账户",
+      "resetTitle": "重置密码",
+      "registerTab": "注册",
+      "resetTab": "忘记",
+      "username": "用户名",
+      "identifier": "用户名或邮箱",
+      "identifierPh": "用户名或邮箱",
+      "usernamePh": "用户名",
+      "email": "邮箱",
+      "password": "密码",
+      "passwordAgain": "确认密码",
+      "captcha": "验证",
+      "captchaRequired": "请先完成验证。",
+      "captchaUnavailable": "无法加载验证码配置。请关闭窗口后重试，或检查网络。",
+      "captchaLoadHint": "正在加载验证码… 若未显示请稍后再试。",
+      "fillAll": "请填写所有必填项。",
+      "passwordMismatch": "两次密码不一致。",
+      "emailRequired": "请输入邮箱。",
+      "failed": "出错了，请重试。",
+      "resetSent": "若存在该账户，您将很快收到邮件说明。",
+      "powWait": "正在进行安全校验…",
+      "loginInProgress": "正在登录，请稍候…",
+      "submitReset": "发送重置链接",
+      "submitRegister": "创建账户",
+      "submitLogin": "登录"
+    }
   },
   "reader": {
     "banner": {
@@ -206,11 +296,19 @@
     },
     "controls": {
       "back": "返回",
+      "settings": "设置",
+      "vertical": "纵向",
+      "horizontal": "横向",
+      "dual": "双页模式",
+      "fit": "适配",
       "fitContain": "适应",
       "fitCover": "填充",
+      "tap": "点击切换",
+      "handSwap": "切换手",
       "inspect": "检查",
       "orientation": "方向",
-      "tap": "点击"
+      "continuous": "连续滚动",
+      "scroll": "滚动"
     },
     "menuHint": "打开控制",
     "pagination": {
@@ -232,7 +330,11 @@
   "settings": {
     "appearance": {
       "hue": "色调: {deg}°",
-      "theme": "应用主题"
+      "theme": "应用主题",
+      "presets": "预设",
+      "fullPalette": "完整调色板",
+      "infiniteScroll": "无限滚动",
+      "infiniteScrollDesc": "向下滚动时自动加载下一页，而不是使用分页"
     },
     "display": {
       "androidNote": "在 Android 上，即使全屏模式下，也可以通过底部上滑显示系统栏。",
@@ -241,6 +343,7 @@
     },
     "language": {
       "choose": "应用语言",
+      "current": "当前",
       "english": "English",
       "note": "只切换界面语言，内容语言不受影响。",
       "russian": "Русский",
@@ -252,17 +355,31 @@
       "hideHints": "隐藏提示",
       "hideHintsDesc": "隐藏阅读器中的提示和手势提示。"
     },
+    "storage": {
+      "savePath": "保存路径",
+      "savePathDesc": "保存已下载书籍的目录"
+    },
     "section": {
       "appearance": "外观",
       "display": "显示",
       "grid": "目录网格",
       "language": "语言",
       "reader": "阅读器",
-      "storage": "设备存储"
+      "storage": "设备存储",
+      "sync": "同步"
+    },
+    "sync": {
+      "title": "在设备之间同步数据",
+      "description": "通过二维码分享您的数据或扫描另一台设备的二维码进行同步。",
+      "button": "同步数据"
     },
     "grid": {
       "resetProfile": "重置此配置",
       "resetAll": "重置所有配置",
+      "cardDesignTitle": "卡片设计",
+      "preview": "预览",
+      "layout": "布局",
+      "spacing": "间距",
       "cardDesign": {
         "image": "图片",
         "classic": "经典",
@@ -340,6 +457,48 @@
     "excluded": "排除",
     "empty": "空"
   },
+  "uikit": {
+    "title": "UIKit",
+    "openAsHome": "启动时打开 UIKit",
+    "openAsHomeDesc": "重启后应用将在此页打开，直至关闭此选项。",
+    "paletteTitle": "主色（调色板测试）",
+    "buttonTitle": "按钮",
+    "buttonPrimary": "主要",
+    "buttonSecondary": "次要",
+    "buttonOutline": "描边",
+    "buttonCompact": "紧凑",
+    "buttonGhost": "幽灵",
+    "buttonChip": "芯片",
+    "typographyTitle": "排版",
+    "typographySample": "永和九年，岁在癸丑，暮春之初，会于会稽山阴之兰亭。",
+    "loadingTitle": "加载与进度",
+    "loadingWithText": "开始加载",
+    "loadingLabel": "加载中…",
+    "download": "下载",
+    "iconsTitle": "带图标的按钮",
+    "favorite": "收藏",
+    "settings": "设置",
+    "dateFilterSubmenu": "按日期筛选",
+    "back": "返回",
+    "dateCustomRange": "自定义范围…",
+    "dateCustomPick": "选择开始与结束",
+    "datePreset24h": "过去24小时",
+    "datePreset7d": "过去7天",
+    "datePreset30d": "过去30天",
+    "sliderTitle": "滑块",
+    "sliderOpacity": "不透明度",
+    "sliderVolume": "音量",
+    "sliderReset": "重置",
+    "keyInputModalTitle": "KeyInputModal",
+    "keyInputModalOnlyAndroid": "仅 Android",
+    "keyInputModalOpenButton": "在键盘上方打开输入",
+    "toggleTitle": "开关",
+    "toggleBasic": "基本",
+    "toggleEnableLabel": "启用功能",
+    "toggleOn": "已开启",
+    "toggleOff": "已关闭",
+    "placeholder": "共享 UI 组件将在此列出和预览。在设置中连续点击版本号三次可打开此页。"
+  },
   "collections": {
     "newTitle": "新建集合",
     "editTitle": "编辑集合",
@@ -363,6 +522,19 @@
       "edit": "编辑",
       "delete": "删除"
     }
+  },
+  "listSort": {
+    "totalCount": "共 {count} 个",
+    "byAdded": "按添加",
+    "byYear": "按年份",
+    "byAlpha": "按字母",
+    "newToOld": "从新到旧",
+    "oldToNew": "从旧到新",
+    "az": "A→Z",
+    "za": "Z→A"
+  },
+  "favoritesOnline": {
+    "searchPlaceholder": "在收藏中搜索…"
   },
   "empty": {
     "search": "未找到任何内容"
@@ -527,11 +699,83 @@
     },
     "emptyTitle": {
       "default": "暂时还没有推荐",
-      "noFav": "暂无推荐——先把一些书加入收藏吧"
+      "noFav": "暂时还没有可推荐的内容"
     },
     "emptySubtitle": {
       "default": "试着修改筛选条件或刷新列表。",
-      "noFav": "先给几本书点个赞，我会为你推荐相似的作品。"
+      "noFav": "先搜索、加入收藏（本地或在线）、阅读，或给标签加星，然后下拉刷新。"
+    },
+    "howItWorks": "推荐设置",
+    "loading": "正在生成推荐…",
+    "modal": {
+      "title": "推荐设置",
+      "dataSection": "使用的数据",
+      "tagPopCalibration": "标签热度与你的信号",
+      "tagPopCalibrationHint": "α=滑块/100，分数=raw/pop^(1−α)。0 为 raw÷pop（小众更靠前），100 为原始分。不同 pop 排名变化不同。",
+      "tagPopCalibrationLow": "小众 (0)",
+      "tagPopCalibrationHigh": "原始 (100)",
+      "topPrefs": "检测到的偏好",
+      "queriesSection": "执行的查询",
+      "algorithm": "评分算法",
+      "algorithmDesc": "每本书根据与您的偏好信号的匹配程度进行评分。您互动过的标签、艺术家和同人原作权重最高。已在收藏或历史记录中的书籍将被排除。首选语言获得10%加成。",
+      "algorithmColdDesc": "推荐需要至少一种信号：搜索、收藏、阅读历史或收藏的标签。请先使用应用，再刷新此页面。",
+      "coldStartHint": "还没有可供学习的数据。请先搜索、收藏、阅读或给标签加星，然后下拉刷新。",
+      "refreshNote": "推荐仅在下拉刷新或重新打开应用时更新。",
+      "favs": "本地收藏",
+      "onlineFavs": "在线收藏",
+      "readHist": "阅读历史",
+      "tagFavs": "收藏标签",
+      "searchHist": "搜索历史",
+      "tags": "标签",
+      "artists": "艺术家",
+      "parodies": "同人原作",
+      "filtersSection": "已启用的标签过滤器",
+      "filterInclude": "必须包含",
+      "filterExclude": "已排除",
+      "pageSection": "页数偏好",
+      "pageAvg": "平均阅读页数",
+      "pages": "页",
+      "pageRange": "偏好范围",
+      "pageTendency": "倾向",
+      "pageLabel": {
+        "short": "短篇",
+        "medium": "中篇",
+        "long": "长篇",
+        "mixed": "长短不一"
+      },
+      "yearSection": "偏好上传年份",
+      "books": "本",
+      "generation": "刷新代数"
     }
+  },
+  "sync": {
+    "title": "同步数据",
+    "selectMode": "选择如何在同一网络中的设备之间同步数据。",
+    "createServer": "创建服务器",
+    "createServerDesc": "启动服务器并等待其他设备连接",
+    "findServer": "查找服务器",
+    "findServerDesc": "搜索网络中可用的服务器",
+    "serverDescription": "服务器正在运行。其他设备现在可以连接以同步数据。",
+    "serverRunning": "服务器运行中",
+    "serverAddress": "地址: {ip}:{port}",
+    "startingServer": "正在启动服务器...",
+    "stopServer": "停止服务器",
+    "serverStarted": "服务器已启动",
+    "serverInfo": "服务器运行在 {ip}:{port}",
+    "serverNotAvailable": "服务器不可用",
+    "mobileServerHint": "在移动设备上，请使用“查找服务器”模式并连接到在另一台设备上运行的服务器。",
+    "clientDescription": "正在搜索网络中的服务器...",
+    "searching": "正在搜索服务器...",
+    "foundServers": "找到的服务器:",
+    "noServersFound": "未找到服务器",
+    "noServersMessage": "在网络中未找到同步服务器。请确保另一台设备正在运行服务器。",
+    "manualConnect": "或手动输入服务器地址:",
+    "connect": "连接",
+    "syncing": "正在同步数据...",
+    "success": "成功",
+    "error": "错误",
+    "synced": "成功同步 {count} 项！",
+    "failed": "同步失败: {error}",
+    "enterUrl": "请输入服务器地址"
   }
 }

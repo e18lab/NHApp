@@ -1,6 +1,6 @@
-// app/profile/[id]/[slug].tsx
+
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Stack, useLocalSearchParams, useRouter } from "expo-router";
+import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import React, {
   useCallback,
   useEffect,
@@ -12,6 +12,7 @@ import {
   Animated,
   Image,
   Linking,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -19,33 +20,28 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
-
-import type { Book } from "@/api/nhentai";
-import { getBook } from "@/api/nhentai";
-import {
-  getMe,
-  getUserOverview,
-  type Me,
-  type UserOverview,
-} from "@/api/nhentaiOnline";
+import { requestStoragePush } from "@/api/nhappApi/cloudStorage";
+import type { Book } from "@/api/nhappApi/types";
+import { getMe, getUserProfile } from "@/api/v2";
+import { resolveImageUrl } from "@/api/v2/config";
+import type { Me, UserProfile } from "@/api/v2";
+import { galleryRelatedToBook } from "@/api/v2/compat";
 import BookList from "@/components/BookList";
 import CommentCard from "@/components/CommentCard";
 import { useWindowLayout } from "@/hooks/book/useWindowLayout";
 import { useGridConfig } from "@/hooks/useGridConfig";
 import { useTheme } from "@/lib/ThemeContext";
 import { useI18n } from "@/lib/i18n/I18nContext";
-
 import { differenceInDays, differenceInMonths } from "date-fns";
-
+import { Feather } from "@expo/vector-icons";
 const AVATAR_SIZE = 112;
 const BANNER_HEIGHT = 140;
 const DESKTOP_BREAKPOINT = 900;
-
+const TABLET_BREAKPOINT = 600;
 let ImageColors: any = null;
 try {
   ImageColors = require("react-native-image-colors");
 } catch {}
-
 function toLightBook(b: Book): Book {
   return {
     ...b,
@@ -60,7 +56,6 @@ function toLightBook(b: Book): Book {
     favorites: Number.isFinite(b.favorites) ? b.favorites : 0,
   };
 }
-
 function decodeHtml(s: string): string {
   if (!s) return "";
   return s
@@ -75,7 +70,6 @@ function decodeHtml(s: string): string {
     .replace(/&gt;/g, ">")
     .replace(/&nbsp;/g, " ");
 }
-
 function darken(hex: string, amount = 0.12): string {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex);
   if (!m) return "#2a2a2a";
@@ -109,7 +103,6 @@ function isLight(hex: string): boolean {
     0.0722 * (b / 255) ** 2.2;
   return L > 0.6;
 }
-
 const Skeleton = ({ style }: { style?: any }) => {
   const opacity = useRef(new Animated.Value(0.6)).current;
   useEffect(() => {
@@ -140,11 +133,8 @@ const Skeleton = ({ style }: { style?: any }) => {
     />
   );
 };
-
 const trimTrailingSlash = (u?: string | null) =>
   (u ?? "").trim().replace(/\/+$/, "");
-
-/* -------------------- локализация длительности без ICU -------------------- */
 function pluralRu(n: number, one: string, few: string, many: string) {
   const n10 = n % 10;
   const n100 = n % 100;
@@ -152,14 +142,12 @@ function pluralRu(n: number, one: string, few: string, many: string) {
   if (n10 >= 2 && n10 <= 4 && (n100 < 12 || n100 > 14)) return few;
   return many;
 }
-
 function formatJoinedAgo(
   lang: "en" | "ru" | "ja" | "zh",
   years: number,
   months: number,
   daysSince: number
 ): string {
-  // если меньше месяца — отдельные «just now» варианты
   if (years === 0 && months === 0) {
     switch (lang) {
       case "ru":
@@ -172,7 +160,6 @@ function formatJoinedAgo(
         return "Just joined";
     }
   }
-
   switch (lang) {
     case "ru": {
       const y = years
@@ -202,42 +189,43 @@ function formatJoinedAgo(
     }
   }
 }
-/* ------------------------------------------------------------------------- */
-
 export default function UserProfileScreen() {
   const { colors } = useTheme();
   const { t, resolved } = useI18n();
   const lang = (resolved ?? "en") as "en" | "ru" | "ja" | "zh";
-
   const router = useRouter();
   const { id, slug } = useLocalSearchParams<{ id: string; slug?: string }>();
   const { innerPadding } = useWindowLayout();
   const { width: winW, height: winH } = useWindowDimensions();
-
   const isDesktop = winW >= DESKTOP_BREAKPOINT;
-  const isMobile = !isDesktop;
-
+  const isTabletOrDesktop = winW >= TABLET_BREAKPOINT;
+  const isMobile = !isTabletOrDesktop;
+  const isTablet = winW >= TABLET_BREAKPOINT && winW < DESKTOP_BREAKPOINT;
+  const isWide = isTabletOrDesktop;
+  const panelWidth = isDesktop ? 360 : isTablet ? 300 : undefined;
   const [busy, setBusy] = useState(true);
-  const [ov, setOv] = useState<UserOverview | null>(null);
+  const [ov, setOv] = useState<UserProfile | null>(null);
   const [viewer, setViewer] = useState<Me | null>(null);
   const [recent, setRecent] = useState<Book[]>([]);
   const [favorites, setFavorites] = useState<Set<number>>(new Set());
   const [bannerColor, setBannerColor] = useState<string>("#2a2a2a");
   const [avatarLoaded, setAvatarLoaded] = useState(false);
-
+  const [avatarPreviewUri, setAvatarPreviewUri] = useState<string | null>(null);
+  const favListRef = useRef<any>(null);
+  const [favScrollX, setFavScrollX] = useState(0);
+  const [favContentW, setFavContentW] = useState(0);
+  const [favViewportW, setFavViewportW] = useState(0);
   const joinedAgoLabel = useMemo(() => {
-    if (!ov?.joinedAt) return "";
+    if (!ov?.date_joined) return "";
     const now = new Date();
-    const joined = new Date(ov.joinedAt);
+    const joined = new Date(ov.date_joined * 1000);
     const totalMonths = differenceInMonths(now, joined);
     const years = Math.floor(totalMonths / 12);
     const months = totalMonths % 12;
     const days = differenceInDays(now, joined);
     return formatJoinedAgo(lang, years, months, days);
   }, [ov?.joinedAt, lang]);
-
   const PAD = winW < 380 ? 12 : 16;
-
   const ui = useMemo(() => {
     const text = (colors as any).txt ?? colors.title ?? "#e6e7e9";
     const sub = (colors as any).metaText ?? colors.sub ?? "#a6abb3";
@@ -260,7 +248,6 @@ export default function UserProfileScreen() {
       ripple: (colors as any).accent ? colors.accent + "18" : "#ffffff18",
     };
   }, [colors]);
-
   const selectGoodHex = (res: any): string | null => {
     const cands: (string | undefined)[] = [
       res?.dominant,
@@ -278,7 +265,6 @@ export default function UserProfileScreen() {
     if (!/^#?[0-9a-f]{6}$/i.test(hx)) return null;
     return hx[0] === "#" ? hx : `#${hx}`;
   };
-
   const pickBannerFrom = useCallback(
     async (url?: string) => {
       try {
@@ -300,6 +286,7 @@ export default function UserProfileScreen() {
     },
     [ui.bannerFallback]
   );
+  const resolvedAvatarUrl = ov?.avatar_url ? resolveImageUrl(ov.avatar_url) : undefined;
 
   useEffect(() => {
     (async () => {
@@ -311,18 +298,15 @@ export default function UserProfileScreen() {
       }
     })();
   }, []);
-
   useEffect(() => {
-    pickBannerFrom(ov?.me?.avatar_url);
-  }, [ov?.me?.avatar_url, pickBannerFrom]);
-
+    if (resolvedAvatarUrl) pickBannerFrom(resolvedAvatarUrl);
+  }, [resolvedAvatarUrl, pickBannerFrom]);
   useEffect(() => {
     AsyncStorage.getItem("bookFavorites").then((j) => {
       const list = j ? (JSON.parse(j) as number[]) : [];
       setFavorites(new Set(list));
     });
   }, []);
-
   const toggleFav = useCallback((bid: number, next: boolean) => {
     setFavorites((prev) => {
       const copy = new Set(prev);
@@ -330,31 +314,35 @@ export default function UserProfileScreen() {
       AsyncStorage.setItem("bookFavorites", JSON.stringify([...copy])).catch(
         () => {}
       );
+      requestStoragePush();
       return copy;
     });
   }, []);
+  const loadOverview = useCallback(async () => {
+    const profile = await getUserProfile(Number(id), slug).catch(() => null);
+    setOv(profile);
+    const recent = (profile?.recent_favorites || [])
+      .slice(0, 12)
+      .map((f) => galleryRelatedToBook(f));
+    setRecent(recent);
+  }, [id, slug]);
 
   useEffect(() => {
     let mounted = true;
     (async () => {
       setBusy(true);
-      const overview = await getUserOverview(Number(id), slug).catch(
-        () => null
-      );
+      await loadOverview();
       if (!mounted) return;
-      setOv(overview);
-
-      const ids = (overview?.recentFavoriteIds || []).slice(0, 12);
-      const books = (
-        await Promise.all(ids.map((g) => getBook(g).catch(() => null)))
-      ).filter(Boolean) as Book[];
-      setRecent(books.map(toLightBook));
-
       setBusy(false);
     })();
     return () => void (mounted = false);
-  }, [id, slug]);
+  }, [loadOverview]);
 
+  useFocusEffect(
+    useCallback(() => {
+      loadOverview();
+    }, [loadOverview])
+  );
   const baseGrid = useGridConfig();
   const favGrid = useMemo(
     () => ({
@@ -366,30 +354,22 @@ export default function UserProfileScreen() {
     }),
     [baseGrid, winW, PAD]
   );
-
-  const favoriteTagsTextRaw = ov?.favoriteTagsText
-    ? decodeHtml(ov.favoriteTagsText)
-    : "";
+  const favoriteTagsTextRaw = ov?.favorite_tags ? decodeHtml(ov.favorite_tags) : "";
   const favoriteTags: string[] =
-    (ov?.favoriteTags && ov.favoriteTags.length
-      ? ov.favoriteTags
-      : favoriteTagsTextRaw
-          .split(",")
-          .map((s) => decodeHtml(s).trim())
-          .filter(Boolean)) || [];
-
+    favoriteTagsTextRaw
+      .split(",")
+      .map((s) => decodeHtml(s).trim())
+      .filter(Boolean) || [];
   const aboutText = ov?.about ? decodeHtml(ov.about).trim() : "";
   const showTags = favoriteTags.length > 0;
   const showAbout = aboutText.length > 0;
-  const profileUrl = trimTrailingSlash(ov?.me?.profile_url);
+  const profileUrl: string | null = null; // not available in v2 public profile
   const canEdit = Boolean(
-    viewer?.id && ov?.me?.id && Number(viewer.id) === Number(ov.me.id)
+    viewer?.id && ov?.id && Number(viewer.id) === Number(ov.id)
   );
-
   const Title = ({ children }: { children: React.ReactNode }) => (
     <Text style={[styles.sectionTitle, { color: ui.title }]}>{children}</Text>
   );
-
   const ProfilePanel = (
     <View
       style={[
@@ -397,13 +377,13 @@ export default function UserProfileScreen() {
         {
           backgroundColor: ui.card,
           paddingBottom: isMobile ? 0 : PAD,
-          borderRadius: isMobile ? 0 : 18,
+          borderRadius: isMobile ? 0 : 20,
         },
       ]}
     >
       {busy && !ov ? (
         <Skeleton
-          style={{ height: BANNER_HEIGHT, borderRadius: isMobile ? 0 : 18 }}
+          style={{ height: BANNER_HEIGHT, borderRadius: isMobile ? 0 : 20 }}
         />
       ) : (
         <View
@@ -412,45 +392,48 @@ export default function UserProfileScreen() {
             {
               height: BANNER_HEIGHT,
               backgroundColor: bannerColor,
-              borderTopLeftRadius: isMobile ? 0 : 18,
-              borderTopRightRadius: isMobile ? 0 : 18,
+              borderTopLeftRadius: isMobile ? 0 : 20,
+              borderTopRightRadius: isMobile ? 0 : 20,
             },
           ]}
         />
       )}
-
       <View style={{ marginTop: -AVATAR_SIZE / 2, paddingHorizontal: PAD }}>
         <View style={{ flexDirection: "row", alignItems: "flex-end" }}>
-          <View>
-            {(!avatarLoaded || (busy && !ov)) && (
-              <Skeleton
+          <Pressable
+            onPress={() => resolvedAvatarUrl && setAvatarPreviewUri(resolvedAvatarUrl)}
+            style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1 })}
+          >
+            <View>
+              {(!avatarLoaded || (busy && !ov)) && (
+                <Skeleton
+                  style={{
+                    width: AVATAR_SIZE,
+                    height: AVATAR_SIZE,
+                    borderRadius: AVATAR_SIZE / 2,
+                  }}
+                />
+              )}
+              <Image
+                source={{ uri: resolvedAvatarUrl }}
+                onLoadEnd={() => {
+                  setAvatarLoaded(true);
+                  pickBannerFrom(resolvedAvatarUrl);
+                }}
                 style={{
                   width: AVATAR_SIZE,
                   height: AVATAR_SIZE,
-                  borderRadius: 32,
+                  borderRadius: AVATAR_SIZE / 2,
+                  borderWidth: 4,
+                  borderColor: ui.card,
+                  position: avatarLoaded ? "relative" : "absolute",
+                  opacity: avatarLoaded ? 1 : 0,
                 }}
               />
-            )}
-            <Image
-              source={{ uri: ov?.me?.avatar_url }}
-              onLoadEnd={() => {
-                setAvatarLoaded(true);
-                pickBannerFrom(ov?.me?.avatar_url);
-              }}
-              style={{
-                width: AVATAR_SIZE,
-                height: AVATAR_SIZE,
-                borderRadius: 32,
-                borderWidth: 6,
-                borderColor: ui.card,
-                position: avatarLoaded ? "relative" : "absolute",
-                opacity: avatarLoaded ? 1 : 0,
-              }}
-            />
-          </View>
+            </View>
+          </Pressable>
         </View>
       </View>
-
       <View style={{ paddingHorizontal: PAD, marginTop: 12 }}>
         {busy && !ov ? (
           <>
@@ -464,22 +447,20 @@ export default function UserProfileScreen() {
               style={[styles.displayName, { color: ui.title }]}
               numberOfLines={1}
             >
-              {ov?.me?.username || "user"}
+              {ov?.username || "user"}
             </Text>
-            {Number.isFinite(ov?.me?.id as number) && (
+            {Number.isFinite(ov?.id as number) && (
               <Text
                 style={[styles.subline, { color: ui.sub }]}
                 numberOfLines={1}
               >
-                ID: {ov?.me?.id}
+                ID: {ov?.id}
               </Text>
             )}
           </>
         )}
       </View>
-
-      {/* {canEdit && ( */}
-      {false && (
+      {canEdit && (
         <View
           style={{
             paddingHorizontal: PAD,
@@ -489,17 +470,25 @@ export default function UserProfileScreen() {
           }}
         >
           <Pressable
-            onPress={() => router.push("/settings")}
+            onPress={() =>
+              router.push({
+                pathname: "/profile/[id]/edit",
+                params: {
+                  id: String(ov?.id ?? id),
+                  slug: ov?.slug ?? slug ?? ov?.username ?? "",
+                  avatarUrl: resolvedAvatarUrl ?? "",
+                },
+              })
+            }
             android_ripple={{ color: ui.ripple, borderless: true }}
             style={[styles.primaryBtn, { backgroundColor: ui.accent }]}
           >
             <Text style={[styles.primaryBtnTxt, { color: ui.onAccent }]}>
-              {t("storageManager.actions.edit")}
+              {t("profile.edit.button")}
             </Text>
           </Pressable>
         </View>
       )}
-
       <View style={{ paddingHorizontal: PAD, marginTop: 16 }}>
         {showAbout && (
           <Text style={{ color: ui.text, lineHeight: 20, marginBottom: 10 }}>
@@ -519,7 +508,6 @@ export default function UserProfileScreen() {
           </Text>
         )}
       </View>
-
       {showTags && !busy && (
         <View
           style={{ paddingHorizontal: PAD, marginTop: 18, paddingBottom: 6 }}
@@ -548,23 +536,52 @@ export default function UserProfileScreen() {
       )}
     </View>
   );
-
   const RightPanel = (
     <View
       style={[
         styles.panel,
         {
           backgroundColor: ui.card,
-          borderRadius: isMobile ? 0 : 18,
+          borderRadius: isMobile ? 0 : 20,
           paddingTop: PAD,
           paddingBottom: PAD,
         },
       ]}
     >
-      <View style={{ paddingHorizontal: PAD, marginBottom: 8 }}>
+      <View style={{ paddingHorizontal: PAD, marginBottom: 8, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
         <Title>{t("menu.favorites")}</Title>
+        {isWide && recent.length > 0 && !busy && (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+            <Pressable
+              onPress={() => {
+                const next = Math.max(0, favScrollX - 220);
+                favListRef.current?.scrollToOffset?.({ offset: next, animated: true });
+              }}
+              style={({ pressed }) => [
+                styles.favArrow,
+                { backgroundColor: ui.chipBg, opacity: favScrollX <= 8 ? 0.4 : pressed ? 0.8 : 1 },
+              ]}
+              disabled={favScrollX <= 8}
+            >
+              <Feather name="chevron-left" size={22} color={ui.text} />
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                const max = Math.max(0, favContentW - favViewportW);
+                const next = Math.min(max, favScrollX + 220);
+                favListRef.current?.scrollToOffset?.({ offset: next, animated: true });
+              }}
+              style={({ pressed }) => [
+                styles.favArrow,
+                { backgroundColor: ui.chipBg, opacity: favContentW > 0 && favScrollX >= favContentW - favViewportW - 8 ? 0.4 : pressed ? 0.8 : 1 },
+              ]}
+              disabled={favContentW > 0 && favScrollX >= favContentW - favViewportW - 8}
+            >
+              <Feather name="chevron-right" size={22} color={ui.text} />
+            </Pressable>
+          </View>
+        )}
       </View>
-
       {busy && recent.length === 0 ? (
         <ScrollView
           horizontal
@@ -590,30 +607,38 @@ export default function UserProfileScreen() {
           {t("historyNotFound")}
         </Text>
       ) : (
-        <BookList
-          data={recent}
-          loading={busy && recent.length === 0}
-          refreshing={false}
-          onRefresh={async () => {}}
-          isFavorite={(bid) => favorites.has(bid)}
-          onToggleFavorite={toggleFav}
-          onPress={(bid) => {
-            const b = recent.find((x) => x.id === bid);
-            router.push({
-              pathname: "/book/[id]",
-              params: { id: String(bid), title: b?.title.pretty },
-            });
-          }}
-          gridConfig={{ default: favGrid }}
-          horizontal
-          background={ui.card}
-        />
+        <View
+          onLayout={(e) => setFavViewportW(e.nativeEvent.layout.width)}
+          style={recent.length > 0 ? undefined : { minHeight: 120 }}
+        >
+          <BookList
+            data={recent}
+            loading={busy && recent.length === 0}
+            refreshing={false}
+            onRefresh={async () => {}}
+            isFavorite={(bid) => favorites.has(bid)}
+            onToggleFavorite={toggleFav}
+            onPress={(bid) => {
+              const b = recent.find((x) => x.id === bid);
+              router.push({
+                pathname: "/book/[id]",
+                params: { id: String(bid), title: b?.title.pretty },
+              });
+            }}
+            gridConfig={{ default: favGrid }}
+            horizontal
+            background={ui.card}
+            scrollRef={favListRef}
+            onScrollHorizontal={(e) => {
+              setFavScrollX(e.nativeEvent.contentOffset.x);
+              setFavContentW(e.nativeEvent.contentSize.width);
+            }}
+          />
+        </View>
       )}
-
       <View style={{ paddingHorizontal: PAD, marginTop: 14, marginBottom: 8 }}>
         <Title>{t("comments.title")}</Title>
       </View>
-
       <View style={{ paddingHorizontal: PAD, gap: 10 }}>
         {busy && !ov ? (
           <>
@@ -636,33 +661,37 @@ export default function UserProfileScreen() {
           </>
         ) : (
           <>
-            {(ov?.recentComments || []).slice(0, 20).map((c) => (
+            {(ov?.recent_comments || []).slice(0, 20).map((c) => (
               <CommentCard
                 key={c.id}
                 id={c.id}
                 body={c.body}
                 post_date={c.post_date}
                 poster={
-                  ov?.me
+                  ov
                     ? {
-                        id: ov.me.id,
-                        username: ov.me.username,
-                        slug: ov.me.slug,
-                        avatar_url: ov.me.avatar_url,
+                        id: ov.id,
+                        username: ov.username,
+                        slug: ov.slug,
+                        avatar_url: resolvedAvatarUrl,
                       }
                     : undefined
                 }
-                avatar={c.avatar_url || ov?.me?.avatar_url}
+                avatar={resolvedAvatarUrl}
                 highlight={false}
+                bookTitle={c.gallery_title}
                 onPress={() =>
                   router.push({
                     pathname: "/book/[id]",
                     params: { id: String(c.gallery_id) },
                   })
                 }
+                onPressAvatar={() => {
+                  if (resolvedAvatarUrl) setAvatarPreviewUri(resolvedAvatarUrl);
+                }}
               />
             ))}
-            {(ov?.recentComments?.length || 0) === 0 && !busy && (
+            {(ov?.recent_comments?.length || 0) === 0 && !busy && (
               <Text style={{ color: ui.sub, paddingVertical: 4 }}>
                 {t("historyNotFound")}
               </Text>
@@ -672,59 +701,91 @@ export default function UserProfileScreen() {
       </View>
     </View>
   );
-
   return (
     <View style={{ flex: 1, backgroundColor: ui.bg }}>
       <Stack.Screen options={{ headerShown: false }} />
-
-      {isDesktop ? (
-        <View
-          style={[
-            styles.desktopRow,
-            {
-              paddingHorizontal: innerPadding,
-              paddingTop: 22,
-              paddingBottom: 22,
-              gap: 18,
-            },
-          ]}
-        >
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={
+          isWide
+            ? {
+                paddingHorizontal: innerPadding,
+                paddingTop: 16,
+                paddingBottom: 24,
+                flexGrow: 1,
+              }
+            : { paddingBottom: 24 }
+        }
+        showsVerticalScrollIndicator={true}
+      >
+        {isWide ? (
           <View
-            style={{
-              width: 380,
-              flexShrink: 0,
-              borderRadius: 18,
-              overflow: "hidden",
-            }}
+            style={[
+              styles.desktopRow,
+              {
+                gap: 20,
+                alignItems: "flex-start",
+              },
+            ]}
           >
-            <ScrollView
-              style={{ maxHeight: winH }}
-              showsVerticalScrollIndicator={false}
+            <View
+              style={{
+                width: panelWidth,
+                maxWidth: panelWidth,
+                flexShrink: 0,
+                borderRadius: 20,
+                overflow: "hidden",
+              }}
             >
               {ProfilePanel}
-            </ScrollView>
+            </View>
+            <View
+              style={{
+                flex: 1,
+                minWidth: 0,
+                borderRadius: 20,
+                overflow: "hidden",
+              }}
+            >
+              {RightPanel}
+            </View>
           </View>
+        ) : (
+          <>
+            {ProfilePanel}
+            {RightPanel}
+          </>
+        )}
+      </ScrollView>
 
-          <View style={{ flex: 1, borderRadius: 18, overflow: "hidden" }}>
-            <ScrollView showsVerticalScrollIndicator>{RightPanel}</ScrollView>
-          </View>
-        </View>
-      ) : (
-        <ScrollView
-          contentContainerStyle={{ paddingHorizontal: 0 }}
-          showsVerticalScrollIndicator={false}
+      <Modal
+        visible={!!avatarPreviewUri}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setAvatarPreviewUri(null)}
+      >
+        <Pressable
+          style={styles.avatarPreviewBackdrop}
+          onPress={() => setAvatarPreviewUri(null)}
         >
-          {ProfilePanel}
-          {RightPanel}
-        </ScrollView>
-      )}
+          <View style={styles.avatarPreviewContent}>
+            <Pressable onPress={() => setAvatarPreviewUri(null)}>
+              {avatarPreviewUri ? (
+                <Image
+                  source={{ uri: avatarPreviewUri }}
+                  style={styles.avatarPreviewImage}
+                  resizeMode="contain"
+                />
+              ) : null}
+            </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
-
 const styles = StyleSheet.create({
   desktopRow: {
-    flex: 1,
     flexDirection: "row",
     alignItems: "flex-start",
   },
@@ -742,7 +803,7 @@ const styles = StyleSheet.create({
   },
   displayName: { fontWeight: "900", fontSize: 24, letterSpacing: 0.2 },
   subline: { marginTop: 4, fontSize: 13, letterSpacing: 0.2 },
-  sectionTitle: { fontWeight: "700", fontSize: 16, letterSpacing: 0.6 },
+  sectionTitle: { fontWeight: "700", fontSize: 17, letterSpacing: 0.5 },
   subheader: { fontWeight: "700", fontSize: 16, letterSpacing: 0.6 },
   primaryBtn: {
     height: 40,
@@ -761,4 +822,29 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   tagTxt: { fontWeight: "700", fontSize: 12 },
+  avatarPreviewBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.85)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
+  },
+  avatarPreviewContent: {
+    maxWidth: "100%",
+    maxHeight: "80%",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  avatarPreviewImage: {
+    width: 280,
+    height: 280,
+    borderRadius: 20,
+  },
+  favArrow: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: "center",
+    alignItems: "center",
+  },
 });

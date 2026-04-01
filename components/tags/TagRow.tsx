@@ -1,13 +1,10 @@
-﻿
 import { useTheme } from "@/lib/ThemeContext";
 import { Feather } from "@expo/vector-icons";
 import React from "react";
 import { GestureResponderEvent, Pressable, StyleSheet, Text, View } from "react-native";
 import { LABEL_OF, typeIcon } from "./helpers";
 import { TagItem } from "./types";
-
 type TagMode = "include" | "exclude";
-
 export function TagRow({
   item,
   mode,
@@ -32,7 +29,6 @@ export function TagRow({
     mode === "include" ? colors.incTxt :
     mode === "exclude" ? colors.excTxt :
     colors.txt;
-
   return (
     <View
       style={[
@@ -51,7 +47,6 @@ export function TagRow({
         <View style={styles.typeIcon}>
           <Feather name={typeIcon(item.type)} size={16} color={mode ? fg : colors.sub} />
         </View>
-
         <View style={{ flex: 1 }}>
           <Text numberOfLines={1} style={[styles.rowTitle, { color: fg }]}>
             {item.name}
@@ -60,11 +55,9 @@ export function TagRow({
             {LABEL_OF[item.type]} • {item.count.toLocaleString("en-US")}
           </Text>
         </View>
-
         <Pressable onPress={onToggleFav} hitSlop={10} style={{ padding: 6, borderRadius: 999 }}>
           <Feather name="heart" size={16} color={isFav ? colors.accent : colors.sub} />
         </Pressable>
-
         {!!mode && onRemove && (
           <Pressable onPress={onRemove} hitSlop={10} style={styles.iconBtn}>
             <Feather name="x" size={16} color={fg} />
@@ -74,7 +67,6 @@ export function TagRow({
     </View>
   );
 }
-
 const styles = StyleSheet.create({
   rowWrapper: {
     borderRadius: 12,
@@ -93,4 +85,3 @@ const styles = StyleSheet.create({
   rowTitle: { fontSize: 14, fontWeight: "800" },
   iconBtn: { padding: 8 },
 });
-

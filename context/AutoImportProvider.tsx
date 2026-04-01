@@ -1,19 +1,16 @@
+import {
+  registerAutoImportTask,
+  unregisterAutoImportTask,
+} from "@/background/autoImport.task";
+import { autoImportSyncOnce, startForegroundPolling } from "@/lib/autoImport";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import React from "react";
 import { AppState, AppStateStatus } from "react-native";
-
-import {
-    registerAutoImportTask,
-    unregisterAutoImportTask,
-} from "@/background/autoImport.task";
-import { autoImportSyncOnce, startForegroundPolling } from "@/lib/autoImport";
-
 type Ctx = {
   enabled: boolean;
   setEnabled: (v: boolean) => void;
   isRunning: boolean;
 };
-
 const AutoImportContext = React.createContext<Ctx | undefined>(undefined);
 export const useAutoImport = () => {
   const ctx = React.useContext(AutoImportContext);
@@ -22,9 +19,7 @@ export const useAutoImport = () => {
   }
   return ctx;
 };
-
 const K_AUTO_IMPORT_ENABLED = "@autoImport.enabled";
-
 export default function AutoImportProvider({
   children,
 }: {
@@ -33,12 +28,10 @@ export default function AutoImportProvider({
   const [enabled, setEnabledState] = React.useState<boolean>(false);
   const [loaded, setLoaded] = React.useState<boolean>(false);
   const [isRunning, setIsRunning] = React.useState<boolean>(false);
-
   const appState = React.useRef<AppStateStatus | null>(
     AppState.currentState as AppStateStatus | null
   );
   const stopPollingRef = React.useRef<null | (() => void)>(null);
-
   React.useEffect(() => {
     (async () => {
       try {
@@ -49,11 +42,10 @@ export default function AutoImportProvider({
       }
     })();
   }, []);
-
   const setEnabled = React.useCallback(async (next: boolean) => {
     setEnabledState(next);
     await AsyncStorage.setItem(K_AUTO_IMPORT_ENABLED, next ? "1" : "0");
-
+      (await import("@/api/nhappApi/cloudStorage")).requestStoragePush();
     if (next) {
       registerAutoImportTask(15).catch(() => {});
       if (appState.current === "active" && !stopPollingRef.current) {
@@ -70,10 +62,8 @@ export default function AutoImportProvider({
       unregisterAutoImportTask().catch(() => {});
     }
   }, []);
-
   React.useEffect(() => {
     if (!loaded) return;
-
     if (enabled) {
       registerAutoImportTask(15).catch(() => {});
       if (appState.current === "active" && !stopPollingRef.current) {
@@ -82,13 +72,10 @@ export default function AutoImportProvider({
       }
       autoImportSyncOnce().catch(() => {});
     }
-
     const sub = AppState.addEventListener("change", (next: AppStateStatus) => {
       const prev = appState.current;
       appState.current = next;
-
       if (!enabled) return;
-
       if (next === "active" && !stopPollingRef.current) {
         stopPollingRef.current = startForegroundPolling(1000);
         setIsRunning(true);
@@ -100,7 +87,6 @@ export default function AutoImportProvider({
         setIsRunning(false);
       }
     });
-
     return () => {
       sub.remove();
       if (stopPollingRef.current) {
@@ -110,12 +96,10 @@ export default function AutoImportProvider({
       setIsRunning(false);
     };
   }, [enabled, loaded]);
-
   const ctx = React.useMemo<Ctx>(
     () => ({ enabled, setEnabled, isRunning }),
     [enabled, setEnabled, isRunning]
   );
-
   return (
     <AutoImportContext.Provider value={ctx}>
       {children}

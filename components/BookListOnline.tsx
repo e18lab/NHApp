@@ -1,34 +1,54 @@
-﻿import { Feather } from "@expo/vector-icons";
+import { Feather } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import React from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  FlatList,
-  ListRenderItem,
-  Modal,
-  Pressable,
-  RefreshControl,
-  StyleSheet,
-  Switch,
-  Text,
-  TextInput,
-  useWindowDimensions,
-  View,
+    Alert,
+    FlatList,
+    ListRenderItem,
+    Modal,
+    NativeScrollEvent,
+    NativeSyntheticEvent,
+    Platform,
+    Pressable,
+    RefreshControl,
+    ScrollView,
+    StyleSheet,
+    Switch,
+    Text,
+    TextInput,
+    useWindowDimensions,
+    View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import LoadingSpinner from "./LoadingSpinner";
 
-import { Book, getFavorites } from "@/api/nhentai";
+import type { Book } from "@/api/nhappApi/types";
+import { fetchBooksFromRecommendationLib } from "@/api/nhappApi/recommendationLib";
+import { addFavorite, removeFavorite } from "@/api/v2";
 import {
-  onlineBulkFavorite,
-  onlineBulkUnfavorite,
-  onlineFavorite,
-  onlineUnfavorite,
-} from "@/api/nhentaiOnline";
+  addOnlineFavoriteIds,
+  removeOnlineFavoriteIds,
+} from "@/lib/onlineFavoritesStorage";
+import { bulkAddFavoritesV2 } from "@/lib/onlineFavoritesBulk";
+
+async function onlineBulkUnfavorite(
+  ids: number[],
+  onProgress?: (done: number, total: number) => void
+): Promise<{ failed: number[] }> {
+  const failed: number[] = [];
+  for (let i = 0; i < ids.length; i++) {
+    try { await removeFavorite(ids[i]); } catch { failed.push(ids[i]); }
+    onProgress?.(i + 1, ids.length);
+    await new Promise((r) => setTimeout(r, 120));
+  }
+  return { failed };
+}
+
+const onlineFavorite = (id: number) => addFavorite(id);
+const onlineUnfavorite = (id: number) => removeFavorite(id);
 import BookCard from "@/components/BookCard";
 import { CardPressable } from "@/components/ui/CardPressable";
 import { useAutoImport } from "@/context/AutoImportProvider";
-import { useFavHistory } from "@/hooks/useFavHistory";
 import { useTheme } from "@/lib/ThemeContext";
 import { useI18n } from "@/lib/i18n/I18nContext";
 
@@ -37,7 +57,6 @@ export interface GridConfig {
   minColumnWidth?: number;
   paddingHorizontal?: number;
   columnGap?: number;
-  cardDesign?: "classic" | "stable" | "image";
 }
 type BreakpointConfig = {
   phonePortrait?: GridConfig;
@@ -58,12 +77,14 @@ type Props = {
   gridConfig?: BreakpointConfig;
   ListEmptyComponent?: React.ReactNode;
   ListFooterComponent?: React.ReactElement | null;
+  ListHeaderComponent?: React.ReactElement | null;
+  hideToolbar?: boolean;
 
   background?: string;
-  cardDesign?: "classic" | "stable" | "image";
 
   onAfterUnfavorite?: (removedIds: number[]) => void;
   onRestoreFavorites?: (books: Book[]) => void;
+  scrollRef?: React.RefObject<FlatList<Book>>;
 };
 
 export default function BookListOnline({
@@ -76,15 +97,16 @@ export default function BookListOnline({
   gridConfig,
   ListEmptyComponent,
   ListFooterComponent,
+  ListHeaderComponent,
+  hideToolbar = false,
   background,
-  cardDesign,
   onAfterUnfavorite,
   onRestoreFavorites,
+  scrollRef,
 }: Props) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
-  const { favoritesSet, historyMap } = useFavHistory();
   const { t } = useI18n();
 
   const {
@@ -95,6 +117,95 @@ export default function BookListOnline({
 
   const [items, setItems] = React.useState<Book[]>(data);
   React.useEffect(() => setItems(data), [data]);
+
+  // Enrich cards (tags/artists/pages/uploaded) via recommendation-lib so "Collecting info" resolves.
+  const [enrichedById, setEnrichedById] = React.useState<Record<number, Book>>({});
+  const enrichQueuedRef = React.useRef<Set<number>>(new Set());
+  const enrichInFlightRef = React.useRef<Set<number>>(new Set());
+  const enrichTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const mergeEnriched = React.useCallback((base: Book, enriched?: Book): Book => {
+    if (!enriched) return base;
+    const b: any = base as any;
+    const e: any = enriched as any;
+    const pickStr = (a?: string, bb?: string) => (a && String(a).trim() ? a : bb || "");
+    const pickNum = (a?: number, bb?: number) =>
+      typeof a === "number" && Number.isFinite(a) && a > 0 ? a : (bb as any);
+    return {
+      ...b,
+      title: {
+        english: pickStr(e?.title?.english, b?.title?.english),
+        japanese: pickStr(e?.title?.japanese, b?.title?.japanese),
+        pretty: pickStr(e?.title?.pretty, b?.title?.pretty),
+      },
+      uploaded: pickStr(e?.uploaded, b?.uploaded),
+      pagesCount: pickNum(e?.pagesCount, b?.pagesCount) ?? b?.pagesCount,
+      tags: Array.isArray(e?.tags) && e.tags.length ? e.tags : b?.tags,
+      artists: Array.isArray(e?.artists) && e.artists.length ? e.artists : b?.artists,
+      characters:
+        Array.isArray(e?.characters) && e.characters.length ? e.characters : b?.characters,
+      parodies: Array.isArray(e?.parodies) && e.parodies.length ? e.parodies : b?.parodies,
+      groups: Array.isArray(e?.groups) && e.groups.length ? e.groups : b?.groups,
+      categories:
+        Array.isArray(e?.categories) && e.categories.length ? e.categories : b?.categories,
+      languages:
+        Array.isArray(e?.languages) && e.languages.length ? e.languages : b?.languages,
+      tagIds: Array.isArray(e?.tagIds) && e.tagIds.length ? e.tagIds : b?.tagIds,
+      // keep cover/thumbnail from base to avoid flicker
+      cover: pickStr(b?.cover, e?.cover),
+      thumbnail: pickStr(b?.thumbnail, e?.thumbnail),
+      coverW: pickNum(b?.coverW, e?.coverW) ?? b?.coverW,
+      coverH: pickNum(b?.coverH, e?.coverH) ?? b?.coverH,
+      media: pickNum(b?.media, e?.media) ?? b?.media,
+    } as Book;
+  }, []);
+
+  const flushEnrichQueue = React.useCallback(() => {
+    if (enrichTimerRef.current) {
+      clearTimeout(enrichTimerRef.current);
+      enrichTimerRef.current = null;
+    }
+    const ids = Array.from(enrichQueuedRef.current);
+    enrichQueuedRef.current.clear();
+    if (!ids.length) return;
+    ids.forEach((id) => enrichInFlightRef.current.add(id));
+    void (async () => {
+      try {
+        const enriched = await fetchBooksFromRecommendationLib(ids, {
+          placeholdersForMissing: true,
+        });
+        const next: Record<number, Book> = {};
+        for (const b of enriched) next[b.id] = b;
+        setEnrichedById((prev) => ({ ...prev, ...next }));
+      } catch {
+        // ignore (offline)
+      } finally {
+        ids.forEach((id) => enrichInFlightRef.current.delete(id));
+      }
+    })();
+  }, []);
+
+  const requestEnrich = React.useCallback(
+    (id: number) => {
+      if (!Number.isFinite(id) || id <= 0) return;
+      if (enrichedById[id]) return;
+      if (enrichInFlightRef.current.has(id)) return;
+      enrichQueuedRef.current.add(id);
+      if (!enrichTimerRef.current) {
+        enrichTimerRef.current = setTimeout(flushEnrichQueue, 250);
+      }
+    },
+    [enrichedById, flushEnrichQueue]
+  );
+
+  React.useEffect(() => {
+    return () => {
+      if (enrichTimerRef.current) clearTimeout(enrichTimerRef.current);
+      enrichTimerRef.current = null;
+      enrichQueuedRef.current.clear();
+      enrichInFlightRef.current.clear();
+    };
+  }, []);
 
   const [selectMode, setSelectMode] = React.useState(false);
   const [selected, setSelected] = React.useState<Set<number>>(new Set());
@@ -116,8 +227,14 @@ export default function BookListOnline({
     const toRestore = [...undoStack];
     const ids = toRestore.map((b) => b.id);
     try {
-      if (ids.length === 1) await onlineFavorite(ids[0]);
-      else await onlineBulkFavorite(ids);
+      if (ids.length === 1) {
+        await onlineFavorite(ids[0]);
+        await addOnlineFavoriteIds(ids);
+      } else {
+        const { failed } = await bulkAddFavoritesV2(ids);
+        const ok = ids.filter((id) => !failed.includes(id));
+        await addOnlineFavoriteIds(ok);
+      }
     } catch {}
     setItems((prev) => {
       const exist = new Set(prev.map((b) => b.id));
@@ -153,14 +270,12 @@ export default function BookListOnline({
       minColumnWidth: 128,
       paddingHorizontal: 12,
       columnGap: 10,
-      cardDesign: "classic",
     };
     const defaultsTablet: GridConfig = {
       numColumns: isPortrait ? 4 : 5,
       minColumnWidth: 150,
       paddingHorizontal: 14,
       columnGap: 12,
-      cardDesign: "classic",
     };
     const def = isTablet ? defaultsTablet : defaultsPhone;
 
@@ -169,21 +284,10 @@ export default function BookListOnline({
       minColumnWidth: pick?.minColumnWidth ?? def.minColumnWidth,
       paddingHorizontal: pick?.paddingHorizontal ?? def.paddingHorizontal,
       columnGap: pick?.columnGap ?? def.columnGap,
-      cardDesign: (cardDesign ?? pick?.cardDesign ?? def.cardDesign) as
-        | "classic"
-        | "stable"
-        | "image",
     };
-  }, [width, height, gridConfig, cardDesign]);
+  }, [width, height, gridConfig]);
 
-  const {
-    cols,
-    cardWidth,
-    columnGap,
-    paddingHorizontal,
-    estCardH,
-    chosenDesign,
-  } = React.useMemo(() => {
+  const { cols, cardWidth, columnGap, paddingHorizontal } = React.useMemo(() => {
     const padH = baseConfig.paddingHorizontal ?? 0;
     const gap = baseConfig.columnGap ?? 0;
     const minW = baseConfig.minColumnWidth ?? 120;
@@ -191,17 +295,12 @@ export default function BookListOnline({
     const maxByWidth = Math.max(1, Math.floor((avail + gap) / (minW + gap)));
     const cols = Math.min(maxByWidth, baseConfig.numColumns);
     const cw = cols > 0 ? (avail - gap * (cols - 1)) / cols : avail;
-    const design = baseConfig.cardDesign ?? "classic";
-    const estH =
-      design === "image" ? Math.round(cw * 1.05) : Math.round(cw * 1.35);
 
     return {
       cols,
       cardWidth: cw,
       columnGap: gap,
       paddingHorizontal: padH,
-      estCardH: estH,
-      chosenDesign: design as "classic" | "stable" | "image",
     };
   }, [baseConfig, width]);
 
@@ -211,23 +310,6 @@ export default function BookListOnline({
   const removeIdsLocally = (ids: number[]) =>
     setItems((prev) => prev.filter((b) => !ids.includes(b.id)));
 
-  const handleSingleUnfavorite = async (id: number) => {
-    const b = items.find((x) => x.id === id);
-    if (!b) return;
-    removeIdsLocally([id]);
-    onAfterUnfavorite?.([id]);
-    pushUndo([b]);
-    try {
-      await onlineUnfavorite(id);
-    } catch {}
-  };
-
-  const emptyHistory = React.useMemo(
-    () =>
-      ({} as Record<number, { current: number; total: number; ts: number }>),
-    []
-  );
-
   const runMassDelete = async (ids: number[]) => {
     if (!ids.length) return;
     const removed = items.filter((b) => ids.includes(b.id));
@@ -235,8 +317,14 @@ export default function BookListOnline({
     onAfterUnfavorite?.(ids);
     pushUndo(removed);
     try {
-      if (ids.length === 1) await onlineUnfavorite(ids[0]);
-      else await onlineBulkUnfavorite(ids);
+      if (ids.length === 1) {
+        await onlineUnfavorite(ids[0]);
+        await removeOnlineFavoriteIds(ids);
+      } else {
+        const { failed } = await onlineBulkUnfavorite(ids);
+        const ok = ids.filter((id) => !failed.includes(id));
+        await removeOnlineFavoriteIds(ok);
+      }
     } catch {
     } finally {
       setSelectMode(false);
@@ -249,6 +337,14 @@ export default function BookListOnline({
       const id = item.id;
       const isSelected = selected.has(id);
       const isLastInRow = (index + 1) % cols === 0;
+      const merged = mergeEnriched(item, enrichedById[id]);
+
+      const anyMerged: any = merged as any;
+      const hasAnyTags =
+        (Array.isArray(anyMerged?.tags) && anyMerged.tags.length > 0) ||
+        (Array.isArray(anyMerged?.artists) && anyMerged.artists.length > 0) ||
+        (Array.isArray(anyMerged?.languages) && anyMerged.languages.length > 0);
+      if (!hasAnyTags) requestEnrich(id);
 
       return (
         <View
@@ -261,22 +357,13 @@ export default function BookListOnline({
         >
           <View style={{ position: "relative" }}>
             <BookCard
-              design={chosenDesign}
-              book={item}
+              book={merged}
               cardWidth={cardWidth}
-              isSingleCol={isSingleCol}
               contentScale={contentScale}
-              isFavorite
-              onToggleFavorite={(_, next) => {
-                if (!next) handleSingleUnfavorite(id);
-              }}
               onPress={() => {
                 if (selectMode) toggleSelect(id);
                 else onPress?.(id);
               }}
-              favoritesSet={favoritesSet}
-              historyMap={historyMap}
-              hydrateFromStorage={false}
             />
 
             {selectMode && (
@@ -316,27 +403,19 @@ export default function BookListOnline({
       cardWidth,
       columnGap,
       isSingleCol,
-      chosenDesign,
       contentScale,
       selectMode,
       selected,
-      favoritesSet,
-      historyMap,
       onPress,
       t,
+      enrichedById,
+      mergeEnriched,
+      requestEnrich,
     ]
   );
 
   const keyExtractor = React.useCallback((b: Book) => String(b.id), []);
-  const getItemLayout =
-    chosenDesign === "image"
-      ? (_: any, index: number) => {
-          const row = Math.floor(index / cols);
-          const rowHeight = estCardH + columnGap;
-          const offset = (paddingHorizontal ?? 0) / 2 + row * rowHeight;
-          return { length: rowHeight, offset, index };
-        }
-      : undefined;
+  const getItemLayout = undefined;
 
   const [importOpen, setImportOpen] = React.useState(false);
   const [importBusy, setImportBusy] = React.useState(false);
@@ -370,10 +449,10 @@ export default function BookListOnline({
     }
     setImportBusy(true);
     try {
-      const { books } = await getFavorites({
-        ids: localIds,
-        perPage: Math.max(24, localIds.length),
-      });
+      const books = await fetchBooksFromRecommendationLib(
+        localIds.slice().reverse(),
+        { placeholdersForMissing: true }
+      );
       setLocalBooks(books);
       setLocalSelected(new Set());
       setImportOpen(true);
@@ -406,11 +485,13 @@ export default function BookListOnline({
     }
     setImportBusy(true);
     try {
-      await onlineBulkFavorite(ids);
+      const { failed } = await bulkAddFavoritesV2(ids);
+      const ok = ids.filter((id) => !failed.includes(id));
+      await addOnlineFavoriteIds(ok);
       Alert.alert(
         t("favorites.import.doneTitle") || "Готово",
-        (t("favorites.import.doneMessage", { count: ids.length }) ||
-          `Импортировано: ${ids.length}`) as string
+        (t("favorites.import.doneMessage", { count: ok.length }) ||
+          `Импортировано: ${ok.length}`) as string
       );
       setImportOpen(false);
     } catch {
@@ -529,57 +610,209 @@ export default function BookListOnline({
     </View>
   );
 
-  const Empty =
-    !loading && items.length === 0
-      ? (ListEmptyComponent as React.ReactElement) ?? (
-          <Text
-            style={{
-              color: colors.sub,
-              textAlign: "center",
-              marginTop: 40,
-            }}
-          >
-            {t("booklist.notFoundShort") || "Пусто"}
-          </Text>
+  const CombinedHeader = (
+    <>
+      {ListHeaderComponent}
+      {!hideToolbar ? Header : null}
+    </>
+  );
+
+  const EmptyOrLoading =
+    loading && items.length === 0
+      ? (
+          <View style={{ marginTop: 40, alignItems: "center" }}>
+            <LoadingSpinner />
+          </View>
         )
-      : null;
+      : items.length === 0
+        ? (ListEmptyComponent as React.ReactElement) ?? (
+            <Text
+              style={{
+                color: colors.sub,
+                textAlign: "center",
+                marginTop: 40,
+              }}
+            >
+              {t("booklist.notFoundShort") || "Пусто"}
+            </Text>
+          )
+        : null;
 
   const contentBottomPad = (paddingHorizontal ?? 0) / 2 + 12 + insets.bottom;
 
+  const listRef = React.useRef<FlatList<Book>>(null);
+  const flatListRef = scrollRef || listRef;
+
+  const _useWebGrid = Platform.OS === "web";
+  const endFiredRef = React.useRef(false);
+
+  const handleWebScroll = React.useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent;
+      const distFromEnd =
+        contentSize.height - contentOffset.y - layoutMeasurement.height;
+      const threshold = layoutMeasurement.height * 0.4;
+      if (distFromEnd <= threshold) {
+        if (!endFiredRef.current) {
+          endFiredRef.current = true;
+          onEndReached?.();
+        }
+      } else {
+        endFiredRef.current = false;
+      }
+    },
+    [onEndReached]
+  );
+
+  const renderWebCard = React.useCallback(
+    (item: Book, index: number) => {
+      const id = item.id;
+      const isSelected = selected.has(id);
+      const merged = mergeEnriched(item, enrichedById[id]);
+
+      const anyMerged: any = merged as any;
+      const hasAnyTags =
+        (Array.isArray(anyMerged?.tags) && anyMerged.tags.length > 0) ||
+        (Array.isArray(anyMerged?.artists) && anyMerged.artists.length > 0) ||
+        (Array.isArray(anyMerged?.languages) && anyMerged.languages.length > 0);
+      if (!hasAnyTags) requestEnrich(id);
+
+      return (
+        <View
+          key={String(item.id)}
+          style={{ width: cardWidth }}
+        >
+          <View style={{ position: "relative" }}>
+            <BookCard
+              book={merged}
+              cardWidth={cardWidth}
+              contentScale={contentScale}
+              onPress={() => {
+                if (selectMode) toggleSelect(id);
+                else onPress?.(id);
+              }}
+            />
+
+            {selectMode && (
+              <Pressable
+                onPress={() => toggleSelect(id)}
+                style={[StyleSheet.absoluteFill, styles.overlayHit]}
+                accessibilityLabel={
+                  isSelected
+                    ? t("favorites.accessibility.deselect") || "Снять выбор"
+                    : t("favorites.accessibility.select") || "Выбрать"
+                }
+              >
+                <View
+                  style={[
+                    StyleSheet.absoluteFill,
+                    {
+                      backgroundColor: isSelected ? "#00000066" : "#00000022",
+                    },
+                  ]}
+                />
+                {isSelected && (
+                  <View style={styles.selectedBadge}>
+                    <Feather name="check" size={16} color={"#000"} />
+                    <Text style={styles.selectedText}>
+                      {t("favorites.selected") || "Выбрано"}
+                    </Text>
+                  </View>
+                )}
+              </Pressable>
+            )}
+          </View>
+        </View>
+      );
+    },
+    [
+      cardWidth,
+      isSingleCol,
+      contentScale,
+      selectMode,
+      selected,
+      onPress,
+      t,
+      enrichedById,
+      mergeEnriched,
+      requestEnrich,
+    ]
+  );
+
+  const webFooter =
+    loading && items.length > 0 ? (
+      <View style={{ paddingVertical: 16, alignItems: "center" }}>
+        <LoadingSpinner />
+      </View>
+    ) : (
+      ListFooterComponent ?? null
+    );
+
   return (
     <View style={[styles.root, { backgroundColor: themeBg }]}>
-      <FlatList
-        data={items}
-        keyExtractor={keyExtractor}
-        renderItem={renderItem}
-        numColumns={cols}
-        columnWrapperStyle={cols > 1 ? { justifyContent: "center" } : undefined}
-        ListHeaderComponent={Header}
-        contentContainerStyle={{
-          paddingHorizontal,
-          paddingTop: (paddingHorizontal ?? 0) / 2,
-          paddingBottom: contentBottomPad,
-        }}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-        }
-        onEndReached={onEndReached}
-        onEndReachedThreshold={0.4}
-        ListFooterComponent={
-          loading ? (
-            <View style={{ height: 16 }} />
+      {_useWebGrid ? (
+        <ScrollView
+          style={{ flex: 1, width: "100%" }}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          }
+          onScroll={handleWebScroll}
+          scrollEventThrottle={16}
+          contentContainerStyle={{
+            paddingHorizontal,
+            paddingTop: (paddingHorizontal ?? 0) / 2,
+            paddingBottom: contentBottomPad,
+            width: "100%",
+            flexGrow: 1,
+          }}
+        >
+          {CombinedHeader}
+          {items.length === 0 && !loading ? (
+            EmptyOrLoading
           ) : (
-            ListFooterComponent ?? null
-          )
-        }
-        ListEmptyComponent={Empty}
-        getItemLayout={getItemLayout as any}
-        windowSize={8}
-        maxToRenderPerBatch={12}
-        initialNumToRender={Math.min(18, items.length)}
-        updateCellsBatchingPeriod={40}
-        removeClippedSubviews={chosenDesign === "image"}
-      />
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: columnGap, width: "100%" }}>
+              {items.map((item, i) => renderWebCard(item, i))}
+            </View>
+          )}
+          {webFooter}
+        </ScrollView>
+      ) : (
+        <FlatList
+          ref={flatListRef}
+          data={items}
+          keyExtractor={keyExtractor}
+          renderItem={renderItem}
+          numColumns={cols}
+          columnWrapperStyle={cols > 1 ? { justifyContent: "center" } : undefined}
+          ListHeaderComponent={CombinedHeader}
+          contentContainerStyle={{
+            paddingHorizontal,
+            paddingTop: (paddingHorizontal ?? 0) / 2,
+            paddingBottom: contentBottomPad,
+          }}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          }
+          onEndReached={onEndReached}
+          onEndReachedThreshold={0.4}
+          ListFooterComponent={
+            loading && items.length > 0 ? (
+              <View style={{ paddingVertical: 16, alignItems: "center" }}>
+                <LoadingSpinner />
+              </View>
+            ) : (
+              ListFooterComponent ?? null
+            )
+          }
+          ListEmptyComponent={EmptyOrLoading}
+          getItemLayout={getItemLayout as any}
+          windowSize={Platform.OS === 'android' ? 5 : 8}
+          maxToRenderPerBatch={Platform.OS === 'android' ? 6 : 12}
+          initialNumToRender={Platform.OS === 'android' ? Math.min(8, items.length) : Math.min(18, items.length)}
+          updateCellsBatchingPeriod={Platform.OS === 'android' ? 50 : 40}
+          removeClippedSubviews={Platform.OS === "android"}
+        />
+      )}
 
       {undoStack.length > 0 && (
         <View
@@ -804,7 +1037,7 @@ export default function BookListOnline({
               >
                 <View style={[styles.btn, { borderColor: colors.page }]}>
                   {importBusy ? (
-                    <ActivityIndicator size="small" />
+                    <LoadingSpinner size="small" />
                   ) : (
                     <Feather name="upload" size={14} color={colors.accent} />
                   )}
@@ -844,17 +1077,10 @@ export default function BookListOnline({
                 <View style={{ width: tileW, margin: 5 }}>
                   <View style={{ position: "relative" }}>
                     <BookCard
-                      design="image"
                       book={item}
                       cardWidth={tileW}
-                      isSingleCol={false}
                       contentScale={0.65}
-                      isFavorite={picked}
-                      onToggleFavorite={() => toggleLocalPick(item.id)}
                       onPress={() => toggleLocalPick(item.id)}
-                      favoritesSet={new Set()}
-                      historyMap={emptyHistory}
-                      hydrateFromStorage={false}
                     />
                     <Pressable
                       onPress={() => toggleLocalPick(item.id)}
@@ -883,7 +1109,9 @@ export default function BookListOnline({
             }}
             ListEmptyComponent={
               importBusy ? (
-                <ActivityIndicator style={{ marginTop: 24 }} />
+                <View style={{ marginTop: 24 }}>
+                  <LoadingSpinner />
+                </View>
               ) : (
                 <Text
                   style={{

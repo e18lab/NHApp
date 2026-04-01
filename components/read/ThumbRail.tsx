@@ -1,7 +1,7 @@
-import { Image as ExpoImage } from "expo-image";
+import ExpoImage from "@/components/ExpoImageCompat";
 import { LinearGradient } from "expo-linear-gradient";
 import React, { useEffect } from "react";
-import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
+import { FlatList, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 
 export function ThumbRail({
   visible,
@@ -17,6 +17,7 @@ export function ThumbRail({
   setRailH,
   padCenter,
   scrollRef,
+  isHorizontal = false,
 }: {
   visible: boolean;
   colors: any;
@@ -33,35 +34,57 @@ export function ThumbRail({
   scrollRef:
     | React.RefObject<FlatList<string>>
     | React.MutableRefObject<FlatList<string> | null>;
+  isHorizontal?: boolean;
 }) {
-  if (!visible) return null;
-
   const THUMB_H = 64;
+  const THUMB_W = isHorizontal ? 52 : 52;
   const THUMB_GAP = 5;
 
   useEffect(() => {
+    if (!visible) return;
     if (scrollRef.current) {
-      const yOffset =
-        firstAbsPage * (THUMB_H + THUMB_GAP) - railH / 1.7 + THUMB_H / 2;
-      scrollRef.current.scrollToOffset({ offset: yOffset, animated: true });
+      if (isHorizontal) {
+        const xOffset =
+          firstAbsPage * (THUMB_W + THUMB_GAP) - (railH || 200) / 2 + THUMB_W / 2;
+        scrollRef.current.scrollToOffset({ offset: xOffset, animated: true });
+      } else {
+        const yOffset =
+          firstAbsPage * (THUMB_H + THUMB_GAP) - railH / 1.7 + THUMB_H / 2;
+        scrollRef.current.scrollToOffset({ offset: yOffset, animated: true });
+      }
     }
-  }, [firstAbsPage, railH]);
+  }, [visible, firstAbsPage, railH, scrollRef, isHorizontal, THUMB_W, THUMB_H]);
+
+  if (!visible) return null;
 
   return (
     <View
       style={[
-        styles.thumbRailWrap,
+        isHorizontal ? styles.thumbRailWrapHorizontal : styles.thumbRailWrap,
         { backgroundColor: colors.searchBg, borderColor: colors.page },
       ]}
-      onLayout={(e) => setRailH(e.nativeEvent.layout.height)}
+      onLayout={(e) => {
+        if (isHorizontal) {
+          setRailH(e.nativeEvent.layout.width);
+        } else {
+          setRailH(e.nativeEvent.layout.height);
+        }
+      }}
     >
       <FlatList
         ref={scrollRef as React.Ref<FlatList<string>>}
         data={urls}
         keyExtractor={(_, i) => String(i)}
-        showsVerticalScrollIndicator={false}
-        snapToInterval={THUMB_H + THUMB_GAP}
+        horizontal={isHorizontal}
+        showsVerticalScrollIndicator={!isHorizontal}
+        showsHorizontalScrollIndicator={isHorizontal}
+        snapToInterval={isHorizontal ? THUMB_W + THUMB_GAP : THUMB_H + THUMB_GAP}
         decelerationRate="fast"
+        removeClippedSubviews={Platform.OS === 'android'}
+        windowSize={Platform.OS === 'android' ? 5 : 7}
+        maxToRenderPerBatch={Platform.OS === 'android' ? 10 : 15}
+        initialNumToRender={Platform.OS === 'android' ? 8 : 12}
+        updateCellsBatchingPeriod={Platform.OS === 'android' ? 50 : 40}
         contentContainerStyle={{
           padding: 6,
         }}
@@ -74,7 +97,12 @@ export function ThumbRail({
 
           return (
             <View
-              style={{
+              style={isHorizontal ? {
+                width: THUMB_W,
+                marginRight: THUMB_GAP,
+                alignItems: "center",
+                justifyContent: "center",
+              } : {
                 height: THUMB_H,
                 marginBottom: THUMB_GAP,
                 alignItems: "center",
@@ -88,7 +116,7 @@ export function ThumbRail({
                 <ExpoImage
                   source={{ uri: item }}
                   style={{
-                    width: 52,
+                    width: THUMB_W,
                     height: THUMB_H,
                     borderRadius: 12,
                     opacity: selected ? 1 : 0.35,
@@ -127,24 +155,43 @@ export function ThumbRail({
           );
         }}
         getItemLayout={(_, index) => ({
-          length: THUMB_H + THUMB_GAP,
-          offset: (THUMB_H + THUMB_GAP) * index,
+          length: isHorizontal ? THUMB_W + THUMB_GAP : THUMB_H + THUMB_GAP,
+          offset: (isHorizontal ? THUMB_W + THUMB_GAP : THUMB_H + THUMB_GAP) * index,
           index,
         })}
       />
-      <LinearGradient
-        pointerEvents="none"
-        colors={[colors.searchBg, "transparent"]}
-        style={styles.fadeTop}
-      />
-      <LinearGradient
-        pointerEvents="none"
-        colors={["transparent", colors.searchBg]}
-        style={styles.fadeBottom}
-      />
-      <Text style={[styles.railCounter, { color: colors.searchTxt }]}>
-        {Math.min(firstAbsPage + 1, totalPages)} / {totalPages}
-      </Text>
+      {isHorizontal ? (
+        <>
+          <LinearGradient
+            pointerEvents="none"
+            colors={[colors.searchBg, "transparent"]}
+            style={styles.fadeLeft}
+          />
+          <LinearGradient
+            pointerEvents="none"
+            colors={["transparent", colors.searchBg]}
+            style={styles.fadeRight}
+          />
+        </>
+      ) : (
+        <>
+          <LinearGradient
+            pointerEvents="none"
+            colors={[colors.searchBg, "transparent"]}
+            style={styles.fadeTop}
+          />
+          <LinearGradient
+            pointerEvents="none"
+            colors={["transparent", colors.searchBg]}
+            style={styles.fadeBottom}
+          />
+        </>
+      )}
+      {!isHorizontal && (
+        <Text style={[styles.railCounter, { color: colors.searchTxt }]}>
+          {Math.min(firstAbsPage + 1, totalPages)} / {totalPages}
+        </Text>
+      )}
     </View>
   );
 }
@@ -207,6 +254,18 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     zIndex: 15,
   },
+  thumbRailWrapHorizontal: {
+    position: "absolute",
+    left: 8,
+    right: 8,
+    bottom: 4,
+    height: 76,
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingVertical: 0,
+    overflow: "hidden",
+    zIndex: 15,
+  },
   fadeTop: {
     position: "absolute",
     top: 0,
@@ -220,6 +279,22 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     height: 36,
+  },
+  fadeLeft: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    left: 0,
+    width: 48,
+    zIndex: 1,
+  },
+  fadeRight: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    right: 0,
+    width: 48,
+    zIndex: 1,
   },
   railCounter: {
     position: "absolute",

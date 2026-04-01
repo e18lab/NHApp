@@ -1,30 +1,29 @@
-﻿import { Feather } from "@expo/vector-icons";
+import LoadingSpinner from "@/components/LoadingSpinner";
+import { Feather } from "@expo/vector-icons";
 import { Image as ExpoImage } from "expo-image";
 import { useRouter } from "expo-router";
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
-  FlatList,
-  LayoutChangeEvent,
-  Modal,
-  Pressable,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-  useWindowDimensions,
+    FlatList,
+    LayoutChangeEvent,
+    Modal,
+    Pressable,
+    RefreshControl,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
+    useWindowDimensions
 } from "react-native";
 
 import {
-  Rect as CardRect,
-  CharacterCatalogItemDto,
-  deleteCharacterCard,
-  getCharacterCatalog,
-  updateCharacterCard,
-} from "@/api/characterCards";
+    Rect as CardRect,
+    CharacterCatalogItemDto,
+    deleteCharacterCard,
+    getCharacterCatalog,
+    updateCharacterCard,
+} from "@/api/nhappApi/characterCards";
 import { TagLite } from "@/components/book/TagBlock";
 import EditCharacterCardModal from "@/components/EditCharacterCardModal";
 import { useOnlineMe } from "@/hooks/useOnlineMe";
@@ -106,9 +105,11 @@ export default function CharactersScreen() {
   const [error, setError] = useState<string | null>(null);
 
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("collections_grid");
   const [authorModalVisible, setAuthorModalVisible] = useState(false);
+  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [activeCollectionName, setActiveCollectionName] = useState<
     string | null
@@ -129,63 +130,82 @@ export default function CharactersScreen() {
     tag: CharacterTag;
     parodyName: string | null;
   } | null>(null);
+  const [renderVersion, setRenderVersion] = useState(0);
 
   const buildGroups = useCallback((items: CharacterCatalogItemDto[]) => {
-    const byParody = new Map<string, CharacterTag[]>();
+    const processData = () => {
+      const byParody = new Map<string, CharacterTag[]>();
 
-    for (const item of items) {
-      const key = item.parodyName ?? "";
-      const arr = byParody.get(key) ?? [];
-      const rect = item.rect as CardRect | null;
-
-      const rawUserId = (item.userId as any) ?? null;
-      const creatorUserId =
-        rawUserId !== null && rawUserId !== undefined
-          ? Number(rawUserId)
-          : null;
-
-      const tag: CharacterTag = {
-        type: "character",
-        name: item.characterName,
-        count: item.cardsCount,
-        hasCard: !!item.imageUrl && !!rect,
-        cardId: item.cardId ?? null,
-        cardImageUrl: item.imageUrl ?? undefined,
-        cardParodyName: item.parodyName ?? undefined,
-        cardRect: rect ? { ...rect } : undefined,
-        creatorUserId,
-        creatorName:
-          item.userName ?? (creatorUserId ? `User #${creatorUserId}` : null),
-        creatorAvatar: creatorUserId
-          ? `https://i1.nhentai.net/avatars/${creatorUserId}.png`
-          : null,
-        bookExternalId: item.bookExternalId ?? null,
+      const toNumOrNull = (v: unknown): number | null => {
+        if (v === null || v === undefined) return null;
+        const n = Number(v);
+        return Number.isFinite(n) ? n : null;
       };
 
-      arr.push(tag);
-      byParody.set(key, arr);
-    }
+      for (const item of items) {
+        const key = item.parodyName ?? "";
+        const arr = byParody.get(key) ?? [];
+        const rect = item.rect as CardRect | null;
 
-    const grouped: ParodyGroup[] = Array.from(byParody.entries()).map(
-      ([key, tags]) => {
-        const sortedTags = [...tags].sort((a, b) => {
-          const aHas = !!(a.cardImageUrl && a.cardRect);
-          const bHas = !!(b.cardImageUrl && b.cardRect);
-          if (aHas !== bHas) return aHas ? -1 : 1;
-          return a.name.localeCompare(b.name, undefined, {
-            sensitivity: "base",
-          });
-        });
-        return { parodyName: key || null, tags: sortedTags };
+        const anyItem = item as any;
+        const creatorUserId = toNumOrNull(
+          item.userId ?? anyItem.user_id ?? anyItem.creatorUserId ?? anyItem.creator_user_id
+        );
+
+        const cardId = toNumOrNull(item.cardId ?? anyItem.card_id ?? anyItem.id);
+        const bookExternalId = toNumOrNull(
+          item.bookExternalId ?? anyItem.book_external_id ?? anyItem.bookId ?? anyItem.book_id
+        );
+
+        const tag: CharacterTag = {
+          type: "character",
+          name: item.characterName,
+          count: item.cardsCount,
+          hasCard: !!item.imageUrl && !!rect,
+          cardId,
+          cardImageUrl: item.imageUrl ?? undefined,
+          cardParodyName: item.parodyName ?? undefined,
+          cardRect: rect ? { ...rect } : undefined,
+          creatorUserId,
+          creatorName:
+            item.userName ?? (creatorUserId ? `User #${creatorUserId}` : null),
+          creatorAvatar: creatorUserId
+            ? `https://i1.nhentai.net/avatars/${creatorUserId}.png`
+            : null,
+          bookExternalId,
+        };
+
+        arr.push(tag);
+        byParody.set(key, arr);
       }
-    );
 
-    grouped.sort((a, b) =>
-      (a.parodyName ?? "").localeCompare(b.parodyName ?? "", undefined, {
-        sensitivity: "base",
-      })
-    );
-    setGroups(grouped);
+      const grouped: ParodyGroup[] = Array.from(byParody.entries()).map(
+        ([key, tags]) => {
+          const sortedTags = [...tags].sort((a, b) => {
+            const aHas = !!(a.cardImageUrl && a.cardRect);
+            const bHas = !!(b.cardImageUrl && b.cardRect);
+            if (aHas !== bHas) return aHas ? -1 : 1;
+            return a.name.localeCompare(b.name, undefined, {
+              sensitivity: "base",
+            });
+          });
+          return { parodyName: key || null, tags: sortedTags };
+        }
+      );
+
+      grouped.sort((a, b) =>
+        (a.parodyName ?? "").localeCompare(b.parodyName ?? "", undefined, {
+          sensitivity: "base",
+        })
+      );
+      setGroups(grouped);
+    };
+
+    if (items.length > 100) {
+      setTimeout(processData, 0);
+    } else {
+      processData();
+    }
   }, []);
 
   const loadData = useCallback(async () => {
@@ -206,6 +226,20 @@ export default function CharactersScreen() {
     loadData();
   }, [loadData]);
 
+  useEffect(() => {
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+    searchTimeoutRef.current = setTimeout(() => {
+      setDebouncedSearch(search);
+    }, 300);
+    return () => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
+    };
+  }, [search]);
+
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
@@ -218,18 +252,17 @@ export default function CharactersScreen() {
     }
   }, [buildGroups]);
 
-  const userOptions = useMemo<UserFilterOption[]>(() => {
+  const userOptions: UserFilterOption[] = useMemo(() => {
     const map = new Map<number, UserFilterOption>();
     let allCount = 0;
 
     for (const item of catalog) {
       allCount++;
 
-      const rawUserId = (item.userId as any) ?? null;
-      const uid =
-        rawUserId !== null && rawUserId !== undefined
-          ? Number(rawUserId)
-          : null;
+      const anyItem = item as any;
+      const rawUserId =
+        item.userId ?? anyItem.user_id ?? anyItem.creatorUserId ?? anyItem.creator_user_id ?? null;
+      const uid = rawUserId !== null && rawUserId !== undefined ? Number(rawUserId) : null;
 
       if (!uid) continue;
 
@@ -261,7 +294,7 @@ export default function CharactersScreen() {
   const currentUserOption =
     userOptions.find((o) => o.userId === selectedUserId) ?? userOptions[0];
 
-  const isSearching = normalize(search).length > 0;
+  const isSearching = normalize(debouncedSearch).length > 0;
 
   const filteredGroups = useMemo(() => {
     if (selectedUserId == null) return groups;
@@ -286,7 +319,7 @@ export default function CharactersScreen() {
 
   const renderContent: RenderContent = useMemo(() => {
     if (isSearching) {
-      const q = normalize(search);
+      const q = normalize(debouncedSearch);
       const res: FlatItem[] = [];
       for (const g of filteredGroups) {
         for (const t of g.tags) {
@@ -330,11 +363,23 @@ export default function CharactersScreen() {
   }, [
     filteredGroups,
     isSearching,
-    search,
+    debouncedSearch,
     viewMode,
     activeCollectionName,
     activeCollectionGroup,
   ]);
+
+  const flatListData = useMemo(() => {
+    if (renderContent.type === "flat") {
+      return renderContent.items;
+    } else {
+      const items: (FlatItem | { type: "group"; group: ParodyGroup })[] = [];
+      for (const group of renderContent.groups) {
+        items.push({ type: "group", group });
+      }
+      return items;
+    }
+  }, [renderContent]);
 
   const canEditTag = useCallback(
     (tag: CharacterTag) => {
@@ -553,15 +598,54 @@ export default function CharactersScreen() {
       </View>
 
       {initialLoading ? (
-        <View style={styles.centerBox}>
-          <ActivityIndicator size="large" color={accent} />
-        </View>
+        <LoadingSpinner fullScreen size="large" color={accent} />
       ) : (
-        <ScrollView
+        <FlatList
+          data={flatListData}
+          keyExtractor={(item, index) => {
+            if ("type" in item && item.type === "group") {
+              return `group-${item.group.parodyName ?? "unk"}`;
+            }
+            const flatItem = item as FlatItem;
+            return `${flatItem.parodyName}:${flatItem.tag.name}:${flatItem.tag.cardId ?? "x"}:${renderVersion}`;
+          }}
+          renderItem={({ item }) => {
+            if ("type" in item && item.type === "group") {
+              return (
+                <CollectionFolderCard
+                  group={item.group}
+                  width={cardWidth}
+                  colors={colors}
+                  onPress={() => handleCollectionPress(item.group)}
+                  t={t}
+                />
+              );
+            }
+            const flatItem = item as FlatItem;
+            return (
+              <CharacterCard
+                tag={flatItem.tag}
+                parodyName={flatItem.parodyName}
+                width={cardWidth}
+                colors={colors}
+                editMode={editMode}
+                canEdit={canEditTag(flatItem.tag)}
+                onPress={() => handleCharacterPress(flatItem.tag, flatItem.parodyName)}
+                t={t}
+              />
+            );
+          }}
+          numColumns={numColumns > 1 ? numColumns : undefined}
+          key={numColumns}
           contentContainerStyle={[
             styles.scrollContent,
             { paddingHorizontal: GRID_HORIZONTAL_PADDING },
           ]}
+          columnWrapperStyle={
+            numColumns > 1 && (renderContent.type === "collections" || renderContent.type === "flat")
+              ? styles.gridContainer
+              : undefined
+          }
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -569,52 +653,35 @@ export default function CharactersScreen() {
               tintColor={accent}
             />
           }
-        >
-          {error && <Text style={styles.errorText}>{error}</Text>}
-          {isEmpty && !error && (
-            <View style={styles.centerBox}>
-              <Feather
-                name="inbox"
-                size={48}
-                color={sub}
-                style={{
-                  opacity: 0.5,
-                  marginBottom: 10,
-                }}
-              />
-              <Text style={{ color: sub }}>{t("characters.empty")}</Text>
-            </View>
-          )}
-
-          <View style={styles.gridContainer}>
-            {renderContent.type === "collections" &&
-              renderContent.groups.map((group) => (
-                <CollectionFolderCard
-                  key={group.parodyName ?? "unk"}
-                  group={group}
-                  width={cardWidth}
-                  colors={colors}
-                  onPress={() => handleCollectionPress(group)}
-                  t={t}
+          ListEmptyComponent={
+            isEmpty && !error ? (
+              <View style={styles.centerBox}>
+                <Feather
+                  name="inbox"
+                  size={48}
+                  color={sub}
+                  style={{
+                    opacity: 0.5,
+                    marginBottom: 10,
+                  }}
                 />
-              ))}
-
-            {renderContent.type === "flat" &&
-              renderContent.items.map(({ tag, parodyName }) => (
-                <CharacterCard
-                  key={`${parodyName}:${tag.name}`}
-                  tag={tag}
-                  parodyName={parodyName}
-                  width={cardWidth}
-                  colors={colors}
-                  editMode={editMode}
-                  canEdit={canEditTag(tag)}
-                  onPress={() => handleCharacterPress(tag, parodyName)}
-                  t={t}
-                />
-              ))}
-          </View>
-        </ScrollView>
+                <Text style={{ color: sub }}>{t("characters.empty")}</Text>
+              </View>
+            ) : error ? (
+              <Text style={styles.errorText}>{error}</Text>
+            ) : null
+          }
+          ListHeaderComponent={
+            error && !isEmpty ? (
+              <Text style={styles.errorText}>{error}</Text>
+            ) : null
+          }
+          removeClippedSubviews={true}
+          maxToRenderPerBatch={10}
+          updateCellsBatchingPeriod={50}
+          initialNumToRender={20}
+          windowSize={10}
+        />
       )}
 
       <Modal
@@ -805,7 +872,7 @@ export default function CharactersScreen() {
 
     setEditSaving(true);
     try {
-      await updateCharacterCard(editingTag.tag.cardId!, {
+      const res = await updateCharacterCard(editingTag.tag.cardId!, {
         characterName: trimmedName,
         parodyName: editParody.trim() || null,
         imageUrl: editingTag.tag.cardImageUrl ?? "",
@@ -818,7 +885,31 @@ export default function CharactersScreen() {
           },
         userId: me?.id!,
       });
-      await loadData();
+
+      const updatedImageUrl =
+        (res as any)?.card?.imageUrl ?? editingTag.tag.cardImageUrl ?? null;
+      const updatedRect = (res as any)?.card?.rect ?? newRect ?? editingTag.tag.cardRect ?? null;
+      const newParody = editParody.trim() || null;
+      const withBust = (u: string | null) =>
+        u ? `${u}${u.includes("?") ? "&" : "?"}v=${Date.now()}` : null;
+
+      setCatalog((prev) => {
+        const next = prev.map((it) =>
+          it.cardId === editingTag.tag.cardId
+            ? {
+                ...it,
+                characterName: trimmedName,
+                parodyName: newParody,
+                imageUrl: withBust(updatedImageUrl),
+                rect: updatedRect,
+              }
+            : it
+        );
+        buildGroups(next);
+        return next;
+      });
+      setRenderVersion((v) => (v + 1) % 100000);
+
       setEditingTag(null);
       setEditError(null);
     } catch (e: any) {
@@ -833,7 +924,12 @@ export default function CharactersScreen() {
     setEditSaving(true);
     try {
       await deleteCharacterCard(editingTag.tag.cardId!, me?.id!);
-      await loadData();
+      setCatalog((prev) => {
+        const next = prev.filter((it) => it.cardId !== editingTag.tag.cardId);
+        buildGroups(next);
+        return next;
+      });
+      setRenderVersion((v) => (v + 1) % 100000);
       setEditingTag(null);
       setEditError(null);
     } catch (e: any) {
@@ -850,15 +946,20 @@ type CroppedImageProps = {
   style?: any;
 };
 
-const CroppedImage: React.FC<CroppedImageProps> = ({ uri, rect, style }) => {
+const CroppedImage: React.FC<CroppedImageProps> = React.memo(({ uri, rect, style }) => {
   const [size, setSize] = useState({ width: 5000, height: 5000 });
+  const layoutRef = useRef({ width: 0, height: 0 });
 
-  const onLayout = (e: LayoutChangeEvent) => {
+  const onLayout = useCallback((e: LayoutChangeEvent) => {
     const { width, height } = e.nativeEvent.layout;
-    if (width !== size.width || height !== size.height) {
+    if (
+      Math.abs(width - layoutRef.current.width) > 1 ||
+      Math.abs(height - layoutRef.current.height) > 1
+    ) {
+      layoutRef.current = { width, height };
       setSize({ width, height });
     }
-  };
+  }, []);
 
   const hasRect =
     !!rect &&
@@ -867,25 +968,27 @@ const CroppedImage: React.FC<CroppedImageProps> = ({ uri, rect, style }) => {
     rect.width > 0 &&
     rect.height > 0;
 
-  let imageStyle: any = {
-    width: "100%",
-    height: "100%",
-  };
+  const imageStyle = useMemo(() => {
+    if (!hasRect || !rect) {
+      return {
+        width: "100%" as const,
+        height: "100%" as const,
+      };
+    }
 
-  if (hasRect && rect) {
     const displayWidth = size.width / rect.width;
     const displayHeight = size.height / rect.height;
     const offsetX = -rect.x * displayWidth;
     const offsetY = -rect.y * displayHeight;
 
-    imageStyle = {
+    return {
       width: displayWidth,
       height: displayHeight,
-      position: "absolute",
+      position: "absolute" as const,
       left: offsetX,
       top: offsetY,
     };
-  }
+  }, [hasRect, rect, size.width, size.height]);
 
   return (
     <View
@@ -901,29 +1004,37 @@ const CroppedImage: React.FC<CroppedImageProps> = ({ uri, rect, style }) => {
     >
       <ExpoImage
         source={{ uri }}
-        style={imageStyle}
+        style={imageStyle as any}
         contentFit="cover"
         cachePolicy="memory-disk"
         priority="low"
+        recyclingKey={uri}
       />
     </View>
   );
-};
+}, (prevProps, nextProps) => {
+  return (
+    prevProps.uri === nextProps.uri &&
+    prevProps.rect?.x === nextProps.rect?.x &&
+    prevProps.rect?.y === nextProps.rect?.y &&
+    prevProps.rect?.width === nextProps.rect?.width &&
+    prevProps.rect?.height === nextProps.rect?.height
+  );
+});
 
-const CollectionFolderCard = React.memo(
-  ({
-    group,
-    width,
-    colors,
-    onPress,
-    t,
-  }: {
-    group: ParodyGroup;
-    width: number;
-    colors: any;
-    onPress: () => void;
-    t: (key: string, params?: Record<string, any>) => string;
-  }) => {
+const CollectionFolderCard = React.memo(function CollectionFolderCard({
+  group,
+  width,
+  colors,
+  onPress,
+  t,
+}: {
+  group: ParodyGroup;
+  width: number;
+  colors: any;
+  onPress: () => void;
+  t: (key: string, params?: Record<string, any>) => string;
+}) {
     const previews = group.tags.filter((t) => t.cardImageUrl).slice(0, 4);
     const collageHeight = width / 0.7;
 
@@ -1003,8 +1114,7 @@ const CollectionFolderCard = React.memo(
         </View>
       </TouchableOpacity>
     );
-  }
-);
+});
 
 type CharacterCardProps = {
   tag: CharacterTag;
@@ -1017,16 +1127,15 @@ type CharacterCardProps = {
   t: (key: string, params?: Record<string, any>) => string;
 };
 
-const CharacterCard = React.memo(
-  ({
-    tag,
-    width,
-    colors,
-    editMode,
-    canEdit,
-    onPress,
-    t,
-  }: CharacterCardProps) => {
+const CharacterCard = React.memo(function CharacterCard({
+  tag,
+  width,
+  colors,
+  editMode,
+  canEdit,
+  onPress,
+  t,
+}: CharacterCardProps) {
     const hasImage = !!tag.cardImageUrl;
     const placeholderInitial = (tag.name || "?").trim().charAt(0) || "?";
 
@@ -1115,8 +1224,7 @@ const CharacterCard = React.memo(
         </View>
       </Pressable>
     );
-  }
-);
+});
 
 const styles = StyleSheet.create({
   container: { flex: 1 },

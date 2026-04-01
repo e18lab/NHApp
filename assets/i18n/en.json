@@ -15,13 +15,27 @@
     "read": "Read",
     "readAgain": "Read again",
     "removeDownload": "Remove download",
-    "pages": "Pages count"
+    "removeDownloadConfirm": "Delete this downloaded book from device?",
+    "pages": "Pages count",
+    "showAll": "Show all"
   },
   "commentComposer": {
     "placeholder": "Write a comment…",
     "hint": {
       "needMore": "{n} more characters to send",
-      "captcha": "After pressing the button a captcha window will open, then your comment will be sent automatically."
+      "captcha": "After pressing send, solve the captcha to post your comment."
+    },
+    "status": {
+      "pow": "Solving proof of work…",
+      "captcha": "Solve the captcha…",
+      "posting": "Posting comment…"
+    },
+    "captcha": {
+      "title": "Human verification",
+      "subtitle": "Complete the captcha to post your comment"
+    },
+    "error": {
+      "captchaUnavailable": "Captcha unavailable. Try again later."
     }
   },
   "cloudflare": {
@@ -39,8 +53,23 @@
       "attempts": "Attempts: {n}"
     }
   },
+  "toast": {
+    "errorTitle": "Error",
+    "httpErrorTitle": "HTTP {code}",
+    "httpErrorGeneric": "HTTP {code}",
+    "genericFailure": "Couldn't complete the action.",
+    "avatarUploadNotImplemented": "Avatar upload is not implemented on the server yet."
+  },
+  "bookcard": {
+    "collectingInfo": "Collecting info"
+  },
   "comments": {
     "title": "Comments",
+    "totalCount": "{count} total",
+    "sort": {
+      "newest": "Newest first",
+      "oldest": "Oldest first"
+    },
     "menu": {
       "translate": "Translate comment",
       "showOriginal": "Show original",
@@ -85,7 +114,10 @@
     "delete": "Delete",
     "close": "Close",
     "hide": "Hide",
-    "clearSelection": "Clear selection"
+    "clearSelection": "Clear selection",
+    "retry": "Retry",
+    "loading": "Loading…",
+    "apply": "Apply"
   },
   "explore": {
     "sort": {
@@ -95,43 +127,24 @@
       "popularToday": "Hot Today",
       "popularWeek": "Hot Week"
     },
-    "sortBy": "Sort by",
     "dateRange": "Date filter",
-    "quickPeriod": "Period",
-    "datePickerTitle": "Date selection",
-    "hintDatesActive": "Date filter is active. Preset sorting is hidden.",
-    "hintPresets": "Select a period or specify a date range.",
-    "dateSearch": {
-      "windowInfo": "Window: indices {start}…{end} • items {total}",
-      "rangeEnd": "Finding window end…",
-      "rangeStart": "Finding window start…",
-      "loading": "Loading…",
-      "done": "Done",
-      "fetch": "Loading window pages…",
-      "meta": "Preparing request…",
-      "probeSubtitle": "{which}: p={page} • {head} → {tail} {dir}",
-      "dirRight": "→ right",
-      "whichEnd": "End",
-      "dirLeft": "← left",
-      "whichStart": "Start",
-      "dirHit": "✓ hit",
-      "title": {
-        "done": "Done",
-        "rangeEnd": "Searching for window end…",
-        "fetch": "Loading window pages…",
-        "loading": "Loading…",
-        "rangeStart": "Searching for window start…",
-        "meta": "Preparing the request…"
-      }
+    "date": {
+      "1h": "1 hour",
+      "24h": "24 hours",
+      "3d": "3 days",
+      "7d": "Week",
+      "30d": "Month",
+      "90d": "3 months",
+      "180d": "6 months",
+      "1y": "Year",
+      "customRange": "Custom range…",
+      "back": "Back",
+      "backToDateList": "Back to date list",
+      "from": "From (YYYY.MM.DD)",
+      "to": "To (YYYY.MM.DD)",
+      "rangeHint": "Enter dates as YYYY.MM.DD. Search uses uploaded:>Xd uploaded:<Yd."
     },
-    "probe": {
-      "end": "End",
-      "directionHit": "✓ hit",
-      "directionRight": "→ right",
-      "directionLeft": "→ left",
-      "subtitle": "{which}: p={page} • {head} → {tail} {dir}",
-      "start": "Start"
-    },
+    "dateRangeCustom": "Date range",
     "noResults": {
       "actions": {
         "resetDates": "Reset dates",
@@ -152,24 +165,74 @@
     }
   },
   "historyNotFound": "History is empty ¯\\_(ツ)_/¯",
+  "lobby": {
+    "peersTitle": "Devices in lobby",
+    "noPeers": "No connected devices"
+  },
+  "profile": {
+    "edit": {
+      "title": "Profile settings",
+      "button": "Profile settings",
+      "electronOnly": "Profile settings are only available in the desktop app.",
+      "loading": "Loading…",
+      "avatar": "Avatar",
+      "changeAvatar": "Change avatar",
+      "removeAvatar": "Remove avatar",
+      "username": "Username",
+      "email": "Email",
+      "about": "About",
+      "favoriteTags": "Favorite tags",
+      "theme": "Site theme",
+      "changePassword": "Change password",
+      "oldPassword": "Current password",
+      "newPassword": "New password",
+      "newPasswordAgain": "New password (again)",
+      "blacklist": "Blacklist Tags",
+      "saved": "Saved",
+      "errorNetwork": "Could not send request. Check your connection and try again, or change profile on nhentai.net in the browser.",
+      "notLoggedIn": "You are not logged in. Please log in to nhentai first.",
+      "permissionTitle": "Permission required",
+      "permissionMessage": "Gallery access is required to pick an avatar."
+    },
+    "blacklist": {
+      "title": "Blacklist Tags",
+      "tags": "Tags",
+      "artists": "Artists",
+      "parodies": "Parodies",
+      "characters": "Characters",
+      "groups": "Groups",
+      "languages": "Languages",
+      "categories": "Categories",
+      "save": "Save",
+      "addPlaceholder": "Search…",
+      "loading": "Loading…",
+      "saved": "Saved",
+      "empty": "Nothing added",
+      "toRemove": "to remove",
+      "unsaved": "Unsaved changes",
+      "description": "Manage hidden tags, artists, and more"
+    }
+  },
   "menu": {
     "downloaded": "Downloaded",
     "explore": "Explore",
-    "favorites": "Favorites",
+    "favorites": "Bookmarks",
     "history": "History",
     "home": "Home",
     "random": "I’m feeling lucky",
     "recommendations": "Recommendations",
+    "new": "NEW",
+    "comingSoon": "Coming soon",
     "search": "Search",
     "settings": "Settings",
     "tags": "Tags",
-    "profile": "Profile",
+    "profile": "My Profile",
     "login": "Sign in",
     "section": {
       "library": "Library"
     },
     "favoritesOnline": "Online favorites",
-    "brand": "NHAppAndroid",
+    "brand": "NHApp",
     "brandTag": "Unofficial",
     "characters": "Characters",
     "discordJoin": "Join Discord",
@@ -187,7 +250,34 @@
       "signedAs": "Signed in as {user}.",
       "cookiesFailed": "Failed to sync cookies."
     },
-    "sync": "Sync"
+    "sync": "Sync",
+    "form": {
+      "registerTitle": "Create account",
+      "resetTitle": "Reset password",
+      "registerTab": "Register",
+      "resetTab": "Forgot",
+      "username": "Username",
+      "identifier": "Username or email",
+      "identifierPh": "username or email",
+      "usernamePh": "choose a username",
+      "email": "Email",
+      "password": "Password",
+      "passwordAgain": "Confirm password",
+      "captcha": "Verification",
+      "captchaRequired": "Complete the verification first.",
+      "captchaUnavailable": "Could not load captcha settings. Close this window and try again, or check your connection.",
+      "captchaLoadHint": "Loading captcha… If it does not appear, try again in a moment.",
+      "fillAll": "Fill in all required fields.",
+      "passwordMismatch": "Passwords do not match.",
+      "emailRequired": "Enter your email address.",
+      "failed": "Something went wrong. Try again.",
+      "resetSent": "If an account exists for this email, you will receive instructions shortly.",
+      "powWait": "Solving security challenge…",
+      "loginInProgress": "Signing in, please wait…",
+      "submitReset": "Send reset link",
+      "submitRegister": "Create account",
+      "submitLogin": "Sign in"
+    }
   },
   "reader": {
     "banner": {
@@ -206,11 +296,19 @@
     },
     "controls": {
       "back": "Back",
+      "settings": "Settings",
+      "vertical": "Vertical",
+      "horizontal": "Horizontal",
+      "dual": "Dual mode",
+      "fit": "Fit",
       "fitContain": "Fit",
       "fitCover": "Fill",
+      "tap": "Tap to switch",
+      "handSwap": "Hand swap",
       "inspect": "Inspect",
       "orientation": "Orientation",
-      "tap": "Tap"
+      "continuous": "Continuous scroll",
+      "scroll": "Scroll"
     },
     "menuHint": "Open controls",
     "pagination": {
@@ -232,7 +330,11 @@
   "settings": {
     "appearance": {
       "hue": "Hue: {deg}°",
-      "theme": "App theme"
+      "theme": "App theme",
+      "presets": "Presets",
+      "fullPalette": "Full Palette",
+      "infiniteScroll": "Infinite scroll",
+      "infiniteScrollDesc": "Automatically load next page when scrolling down instead of pagination"
     },
     "display": {
       "androidNote": "On Android, system bars can be revealed with a bottom swipe even in fullscreen.",
@@ -241,6 +343,7 @@
     },
     "language": {
       "choose": "App language",
+      "current": "Current",
       "english": "English",
       "note": "Switch only the interface language. Content language is not affected.",
       "russian": "Русский",
@@ -258,11 +361,21 @@
       "grid": "Catalog grid",
       "language": "Language",
       "reader": "Reader",
-      "storage": "Device storage"
+      "storage": "Device storage",
+      "sync": "Sync"
+    },
+    "sync": {
+      "title": "Sync Data Between Devices",
+      "description": "Share your data via QR code or scan QR code from another device to sync.",
+      "button": "Sync Data"
     },
     "grid": {
       "resetProfile": "Reset this profile",
       "resetAll": "Reset all profiles",
+      "cardDesignTitle": "Card design",
+      "preview": "Preview",
+      "layout": "Layout",
+      "spacing": "Spacing",
       "cardDesign": {
         "image": "Image",
         "classic": "Classic",
@@ -340,6 +453,61 @@
     "excluded": "Excluded",
     "empty": "empty"
   },
+  "uikit": {
+    "title": "UIKit",
+    "openAsHome": "Open UIKit on app start",
+    "openAsHomeDesc": "After restart the app will open on this page until you turn this off.",
+    "paletteTitle": "Main color (palette test)",
+    "buttonTitle": "Button",
+    "buttonPrimary": "Primary",
+    "buttonSecondary": "Secondary",
+    "buttonOutline": "Outline",
+    "buttonCompact": "Compact",
+    "buttonGhost": "Ghost",
+    "buttonChip": "Chip",
+    "typographyTitle": "Typography",
+    "typographySample": "The quick brown fox jumps over the lazy dog.",
+    "loadingTitle": "Loading & progress",
+    "loadingWithText": "Start loading",
+    "loadingLabel": "Loading…",
+    "download": "Download",
+    "iconsTitle": "Buttons with icons",
+    "favorite": "Favorite",
+    "settings": "Settings",
+    "selectTitle": "Select",
+    "selectPlaceholder": "Choose option…",
+    "selectReset": "Reset",
+    "selectWithReset": "With reset",
+    "selectVariants": "Variants",
+    "filterTitle": "Filter dropdown",
+    "filterButton": "Filters",
+    "periodNew": "New",
+    "periodToday": "Popular today",
+    "periodWeek": "Popular this week",
+    "periodMonth": "Popular this month",
+    "periodAll": "Popular",
+    "filterByDate": "Filter by date",
+    "dateFilterSubmenu": "Date filter",
+    "back": "Back",
+    "dateCustomRange": "Custom range…",
+    "dateCustomPick": "Pick start & end",
+    "datePreset24h": "Last 24 hours",
+    "datePreset7d": "Last 7 days",
+    "datePreset30d": "Last 30 days",
+    "sliderTitle": "Slider",
+    "sliderOpacity": "Opacity",
+    "sliderVolume": "Volume",
+    "sliderReset": "Reset",
+    "keyInputModalTitle": "KeyInputModal",
+    "keyInputModalOnlyAndroid": "only Android",
+    "keyInputModalOpenButton": "Open input above keyboard",
+    "toggleTitle": "Toggle",
+    "toggleBasic": "Basic",
+    "toggleEnableLabel": "Enable feature",
+    "toggleOn": "Enabled",
+    "toggleOff": "Disabled",
+    "placeholder": "Shared UI components will be listed and previewed here. Tap version 3 times in Settings to open this screen."
+  },
   "collections": {
     "newTitle": "New collection",
     "editTitle": "Edit collection",
@@ -363,6 +531,19 @@
       "edit": "Edit",
       "delete": "Delete"
     }
+  },
+  "listSort": {
+    "totalCount": "{count} total",
+    "byAdded": "By added",
+    "byYear": "By year",
+    "byAlpha": "By alphabet",
+    "newToOld": "Newest → oldest",
+    "oldToNew": "Oldest → newest",
+    "az": "A→Z",
+    "za": "Z→A"
+  },
+  "favoritesOnline": {
+    "searchPlaceholder": "Search in favorites…"
   },
   "empty": {
     "search": "Nothing found"
@@ -527,11 +708,83 @@
     },
     "emptyTitle": {
       "default": "No recommendations yet",
-      "noFav": "No recommendations — add some books to favorites"
+      "noFav": "Nothing to recommend yet"
     },
     "emptySubtitle": {
       "default": "Try changing the filters or refreshing the list.",
-      "noFav": "Like a few books and I'll find similar ones."
+      "noFav": "Search for titles, add favorites (local or online), read books, or star tags — then pull to refresh."
+    },
+    "howItWorks": "Recommendation settings",
+    "loading": "Building recommendations…",
+    "modal": {
+      "title": "Recommendation settings",
+      "dataSection": "Your data used",
+      "tagPopCalibration": "Tag popularity vs. your signal",
+      "tagPopCalibrationHint": "α = slider/100. Score = raw / pop^(1−α). At 0: raw÷pop (niche tags rise in the list, common tags fall). At 100: raw score (pop ignored). Each row: raw/(pop^exp)=score with exp=1−α — different tags move at different rates.",
+      "tagPopCalibrationLow": "Niche (0)",
+      "tagPopCalibrationHigh": "Raw (100)",
+      "topPrefs": "Top detected preferences",
+      "queriesSection": "Queries executed",
+      "algorithm": "Scoring algorithm",
+      "algorithmDesc": "Each book is scored by matching your preference signals. Tags, artists, and parodies you've interacted with score highest. Books already in your favorites or history are excluded. The preferred language gets a 10% bonus.",
+      "algorithmColdDesc": "Recommendations need at least one signal: search queries, favorites, reading history, or starred tags. Use the app for a bit, then refresh this screen.",
+      "coldStartHint": "There is no data to learn from yet. Search, like books, read, or favorite tags — recommendations will appear after you pull to refresh.",
+      "refreshNote": "Recommendations update only on pull-to-refresh or when you re-open the app.",
+      "favs": "Local favorites",
+      "onlineFavs": "Online favorites",
+      "readHist": "Read history",
+      "tagFavs": "Favorite tags",
+      "searchHist": "Search history",
+      "tags": "Tags",
+      "artists": "Artists",
+      "parodies": "Parodies",
+      "filtersSection": "Active tag filters",
+      "filterInclude": "Required",
+      "filterExclude": "Excluded",
+      "pageSection": "Page length preference",
+      "pageAvg": "Average pages read",
+      "pages": "pages",
+      "pageRange": "Preferred range",
+      "pageTendency": "Tendency",
+      "pageLabel": {
+        "short": "short books",
+        "medium": "medium-length books",
+        "long": "long books",
+        "mixed": "mixed lengths"
+      },
+      "yearSection": "Preferred upload years",
+      "books": "books",
+      "generation": "Refresh generation"
     }
+  },
+  "sync": {
+    "title": "Sync Data",
+    "selectMode": "Choose how to sync data between devices in the same network.",
+    "createServer": "Create Server",
+    "createServerDesc": "Start a server and wait for other devices to connect",
+    "findServer": "Find Server",
+    "findServerDesc": "Search for available servers in the network",
+    "serverDescription": "Server is running. Other devices can now connect to sync data.",
+    "serverRunning": "Server Running",
+    "serverAddress": "Address: {ip}:{port}",
+    "startingServer": "Starting server...",
+    "stopServer": "Stop Server",
+    "serverStarted": "Server Started",
+    "serverInfo": "Server is running at {ip}:{port}",
+    "serverNotAvailable": "Server Not Available",
+    "mobileServerHint": "On mobile devices, please use 'Find Server' mode and connect to a server running on another device.",
+    "clientDescription": "Searching for servers in the network...",
+    "searching": "Searching for servers...",
+    "foundServers": "Found Servers:",
+    "noServersFound": "No Servers Found",
+    "noServersMessage": "No sync servers found in the network. Make sure another device is running the server.",
+    "manualConnect": "Or enter server URL manually:",
+    "connect": "Connect",
+    "syncing": "Syncing data...",
+    "success": "Success",
+    "error": "Error",
+    "synced": "Synced {count} items successfully!",
+    "failed": "Sync failed: {error}",
+    "enterUrl": "Please enter server URL"
   }
 }

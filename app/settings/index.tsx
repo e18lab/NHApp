@@ -1,28 +1,29 @@
-import Slider from "@react-native-community/slider";
 import * as NavigationBar from "expo-navigation-bar";
 import { setStatusBarHidden } from "expo-status-bar";
 import React, { useMemo, useState } from "react";
 import {
-  Platform,
-  StyleSheet,
-  Text,
-  useWindowDimensions,
-  View,
+    Platform,
+    Text,
+    useWindowDimensions,
+    View
 } from "react-native";
 
 import GridSection from "@/components/settings/GridSection";
 import SettingsBuilder from "@/components/settings/SettingsBuilder";
 import SettingsLayout from "@/components/settings/SettingsLayout";
 
-import { FS_KEY, RH_KEY, STORAGE_KEY_HUE } from "@/components/settings/keys";
+import { FS_KEY, INFINITE_SCROLL_KEY, RH_KEY, STORAGE_KEY_HUE } from "@/components/settings/keys";
 import type { SettingsSection } from "@/components/settings/schema";
+import { isElectron } from "@/electron/bridge";
 import { usePersistedState } from "@/hooks/usePersistedState";
 import { useTheme } from "@/lib/ThemeContext";
 import { useI18n } from "@/lib/i18n/I18nContext";
 
+import HuePaletteSelector from "@/components/settings/HuePaletteSelector";
+import LanguageSelector from "@/components/settings/LanguageSelector";
 import Section from "@/components/settings/Section";
 import StorageManager from "@/components/settings/StorageManager";
-import LanguageRow from "@/components/settings/rows/LanguageRow";
+import { SavePathRow } from "@/components/settings/rows/SavePathRow";
 import { GridProfile } from "@/config/gridConfig";
 
 function systemProfileForDims(w: number, h: number): GridProfile {
@@ -39,14 +40,22 @@ export default function SettingsScreen() {
   const { width, height } = useWindowDimensions();
   const sysProfile = systemProfileForDims(width, height);
   const [activeProfile, setActiveProfile] = useState<GridProfile>(sysProfile);
+  const isDesktop = isElectron() || (Platform.OS === "web" && width >= 768);
+  const isTablet = width >= 600 && width < 768;
 
   const { hue, setHue, colors } = useTheme();
   const [hueLocal, setHueLocal] = usePersistedState<number>(
     STORAGE_KEY_HUE,
     hue
   );
-  const [fullscreen, setFullscreen] = usePersistedState<boolean>(FS_KEY, false);
-  const [hideHints, setHideHints] = usePersistedState<boolean>(RH_KEY, false);
+  const [fullscreen, setFullscreen] = usePersistedState<boolean>(FS_KEY, false, {
+    syncToCloud: true,
+  });
+  const [infiniteScroll, setInfiniteScroll] = usePersistedState<boolean>(
+    INFINITE_SCROLL_KEY,
+    false,
+    { syncToCloud: true }
+  );
 
   const toggleFullscreen = async (value: boolean) => {
     setFullscreen(value);
@@ -72,135 +81,131 @@ export default function SettingsScreen() {
   };
 
   const sections: SettingsSection[] = useMemo(
-    () => [
-      {
-        id: "language",
-        title: t("settings.section.language"),
-        cards: [
-          {
-            id: "language-card",
-            items: [
-              {
-                id: "language-row",
-                kind: "custom",
-                render: () => <LanguageRow />,
-              },
-            ],
-          },
-        ],
-      },
-      {
-        id: "appearance",
-        title: t("settings.section.appearance"),
-        cards: [
-          {
-            id: "theme-card",
-            items: [
-              {
-                id: "hue-slider",
-                kind: "custom",
-                render: () => (
-                  <>
-                    <Text
+    () => {
+      const electronMode = isElectron();
+      const sectionsList: SettingsSection[] = [
+        {
+          id: "language",
+          title: t("settings.section.language"),
+          cards: [
+            {
+              id: "language-card",
+              items: [
+                {
+                  id: "language-row",
+                  kind: "custom",
+                  render: () => <LanguageSelector />,
+                },
+              ],
+            },
+          ],
+        },
+        {
+          id: "appearance",
+          title: t("settings.section.appearance"),
+          cards: [
+            {
+              id: "theme-card",
+              items: [
+                {
+                  id: "hue-palette",
+                  kind: "custom",
+                  render: () => (
+                    <>
+                      <View style={{ marginBottom: 4 }}>
+                        <Text
+                          style={{
+                            fontSize: isDesktop ? 19 : isTablet ? 18 : 17,
+                            fontWeight: "800",
+                            color: colors.txt,
+                            lineHeight: isDesktop ? 26 : isTablet ? 25 : 24,
+                            letterSpacing: isDesktop ? 0.4 : isTablet ? 0.35 : 0.3,
+                          }}
+                        >
+                          {t("settings.appearance.theme")}
+                        </Text>
+                      </View>
+                      <View style={{ marginTop: isDesktop ? 20 : isTablet ? 18 : 16 }}>
+                        <HuePaletteSelector
+                          value={hueLocal}
+                          onValueChange={(deg) => setHueLocal(deg)}
+                          onComplete={(deg) => setHue(deg)}
+                        />
+                      </View>
+                    </>
+                  ),
+                },
+                {
+                  id: "infinite-scroll",
+                  kind: "toggle",
+                  title: t("settings.appearance.infiniteScroll") || "Бесконечная прокрутка",
+                  description:
+                    t("settings.appearance.infiniteScrollDesc") ||
+                    "Автоматическая загрузка следующей страницы при прокрутке вниз вместо пагинации",
+                  value: infiniteScroll,
+                  onToggle: setInfiniteScroll,
+                },
+              ],
+            },
+          ],
+        },
+      ];
+
+      if (!electronMode) {
+        sectionsList.push({
+          id: "screen",
+          title: t("settings.section.display"),
+          cards: [
+            {
+              id: "screen-card",
+              items: [
+                {
+                  id: "fullscreen",
+                  kind: "toggle",
+                  title: t("settings.display.fullscreen"),
+                  description: t("settings.display.fullscreenDesc"),
+                  value: fullscreen,
+                  onToggle: toggleFullscreen,
+                },
+                {
+                  id: "android-note",
+                  kind: "custom",
+                  render: () => (
+                    <View
                       style={{
-                        fontSize: 16,
-                        fontWeight: "700",
-                        color: colors.txt,
+                        marginTop: isDesktop ? 18 : isTablet ? 16 : 14,
+                        borderRadius: isDesktop ? 14 : isTablet ? 13 : 12,
+                        borderWidth: 1,
+                        paddingHorizontal: isDesktop ? 16 : isTablet ? 14 : 12,
+                        paddingVertical: isDesktop ? 14 : isTablet ? 12 : 10,
+                        borderColor: colors.accent + "30",
+                        backgroundColor: colors.accent + "08",
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: isDesktop ? 10 : isTablet ? 9 : 8,
                       }}
                     >
-                      {t("settings.appearance.theme")}
-                    </Text>
-                    <Text
-                      style={{ fontSize: 14, color: colors.sub, marginTop: 8 }}
-                    >
-                      {t("settings.appearance.hue", {
-                        deg: Math.round(hueLocal),
-                      })}
-                    </Text>
-                    <Slider
-                      style={{ marginTop: 8 }}
-                      minimumValue={0}
-                      maximumValue={360}
-                      step={1}
-                      value={hueLocal}
-                      minimumTrackTintColor={colors.accent}
-                      thumbTintColor={colors.accent}
-                      onValueChange={(deg) => setHueLocal(deg)}
-                      onSlidingComplete={(deg) => setHue(deg)}
-                    />
-                  </>
-                ),
-              },
-            ],
-          },
-        ],
-      },
-      {
-        id: "screen",
-        title: t("settings.section.display"),
-        cards: [
-          {
-            id: "screen-card",
-            items: [
-              {
-                id: "fullscreen",
-                kind: "toggle",
-                title: t("settings.display.fullscreen"),
-                description: t("settings.display.fullscreenDesc"),
-                value: fullscreen,
-                onToggle: toggleFullscreen,
-              },
-              {
-                id: "android-note",
-                kind: "custom",
-                render: () => (
-                  <View
-                    style={{
-                      marginTop: 12,
-                      borderRadius: 10,
-                      borderWidth: StyleSheet.hairlineWidth,
-                      paddingHorizontal: 10,
-                      paddingVertical: 8,
-                      borderColor: colors.page,
-                      backgroundColor: colors.bg,
-                    }}
-                  >
-                    <Text style={{ fontSize: 11, color: colors.sub }}>
-                      {t("settings.display.androidNote")}
-                    </Text>
-                  </View>
-                ),
-              },
-            ],
-          },
-        ],
-      },
-      {
-        id: "reader",
-        title: t("settings.section.reader"),
-        cards: [
-          {
-            id: "reader-card",
-            items: [
-              {
-                id: "hide-hints",
-                kind: "toggle",
-                title: t("settings.reader.hideHints"),
-                description: t("settings.reader.hideHintsDesc"),
-                value: hideHints,
-                onToggle: (v) => {
-                  setHideHints(v);
-                  try {
-                    (globalThis as any).__setReaderHideHints?.(v);
-                  } catch {}
+                      <Text style={{ 
+                        fontSize: isDesktop ? 13 : isTablet ? 12.5 : 12, 
+                        color: colors.sub, 
+                        flex: 1, 
+                        lineHeight: isDesktop ? 18 : isTablet ? 17 : 16 
+                      }}>
+                        {t("settings.display.androidNote")}
+                      </Text>
+                    </View>
+                  ),
                 },
-              },
-            ],
-          },
-        ],
-      },
-    ],
-    [colors, fullscreen, hideHints, hueLocal, t]
+              ],
+            },
+          ],
+        });
+      }
+
+
+      return sectionsList;
+    },
+    [colors, fullscreen, hueLocal, infiniteScroll, t]
   );
 
   return (
@@ -214,6 +219,14 @@ export default function SettingsScreen() {
       />
 
       <Section title={t("settings.section.storage")} />
+      {isElectron() && (
+        <View style={{ 
+          paddingHorizontal: isDesktop ? 0 : isTablet ? 0 : 0, 
+          marginBottom: isDesktop ? 20 : isTablet ? 18 : 16 
+        }}>
+          <SavePathRow />
+        </View>
+      )}
       <StorageManager />
     </SettingsLayout>
   );

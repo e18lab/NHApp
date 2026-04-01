@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reader</title>
+  <style>
+    :root {
+      --base-hue: 210;
+      --colour-overlay: rgba(0, 0, 0, 0.92);
+      --colour-l1: rgba(255, 255, 255, 0.95);
+      --colour-l2: rgba(255, 255, 255, 0.8);
+      --colour-l3: rgba(255, 255, 255, 0.6);
+      --colour-b2: rgba(30, 30, 30, 0.9);
+      --colour-b3: rgba(40, 40, 40, 0.85);
+      --colour-b4: rgba(50, 50, 50, 0.8);
+      --colour-c1: rgba(255, 255, 255, 1);
+      --spacing-xs: 6px;
+      --spacing-sm: 12px;
+      --spacing-md: 16px;
+      --border-radius-sm: 4px;
+      --border-radius-md: 8px;
+      --font-size-sm: 13px;
+      --font-size-md: 14px;
+      --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
+      --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.4);
+      --tr: all 0.2s ease;
+    }
+    
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: transparent;
+      color: var(--colour-l1);
+      overflow: hidden;
+      height: 100vh;
+      position: relative;
+    }
+    
+    button {
+      all: unset;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    /* Оверлей */
+    .overlay {
+      position: absolute;
+      inset: 0;
+      background: var(--colour-overlay);
+      z-index: -2;
+    }
+    
+    /* Заголовок */
+    .title-bar {
+      z-index: 322;
+      height: 32px;
+      padding: var(--spacing-sm);
+      color: var(--colour-l1);
+      font-size: var(--font-size-sm);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      -webkit-app-region: drag;
+      user-select: none;
+      position: relative;
+    }
+    
+    .title-bar-left {
+      display: flex;
+      align-items: center;
+      gap: var(--spacing-sm);
+      flex: 1;
+      -webkit-app-region: drag;
+    }
+    
+    .title-bar-right {
+      display: flex;
+      gap: 4px;
+      -webkit-app-region: no-drag;
+    }
+    
+    .title-button {
+      width: 32px;
+      height: 32px;
+      border: none;
+      background: transparent;
+      color: var(--colour-l1);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: var(--border-radius-sm);
+      transition: var(--tr);
+      font-size: 16px;
+      -webkit-app-region: no-drag;
+    }
+    
+    .title-button:hover {
+      background: var(--colour-b4);
+    }
+    
+    .title-button.close:hover {
+      background: #e81123;
+    }
+    
+    /* Навигационные кнопки */
+    .nav {
+      position: fixed;
+      width: 155px;
+      height: calc(100vh - 48px);
+      top: 48px;
+      background: hsla(var(--base-hue), 20%, 50%, 0);
+      border: 0;
+      box-shadow: var(--shadow-sm);
+      transition: var(--tr);
+      z-index: 10;
+      font-size: 24px;
+      color: var(--colour-l1);
+    }
+    
+    .nav:hover {
+      background: var(--colour-b4);
+      box-shadow: var(--shadow-md);
+    }
+    
+    .nav.left {
+      left: 0;
+    }
+    
+    .nav.right {
+      right: 0;
+    }
+    
+    .nav:disabled {
+      opacity: 0.3;
+      cursor: not-allowed;
+    }
+    
+    /* Информационная панель */
+    .info {
+      position: fixed;
+      left: 12px;
+      bottom: 12px;
+      color: var(--colour-l1);
+      font-size: var(--font-size-md);
+      background: var(--colour-b2);
+      padding: var(--spacing-xs) var(--spacing-sm);
+      border-radius: var(--border-radius-sm);
+      box-shadow: var(--shadow-sm);
+      text-shadow: 0 1px 1px rgba(0, 0, 0, 0.3);
+      z-index: 20;
+    }
+    
+    /* Панель инструментов */
+    .tools {
+      position: fixed;
+      z-index: 20;
+      right: 12px;
+      top: 55px;
+      display: flex;
+      flex-direction: row;
+      gap: var(--spacing-sm);
+    }
+    
+    .tools button {
+      width: 40px;
+      height: 40px;
+      background: var(--colour-b3);
+      border: 1px solid var(--colour-b4);
+      border-radius: var(--border-radius-md);
+      box-shadow: var(--shadow-sm);
+      transition: var(--tr);
+      font-size: 18px;
+      color: var(--colour-l1);
+    }
+    
+    .tools button:hover {
+      background: var(--colour-b4);
+      box-shadow: var(--shadow-md);
+    }
+    
+    .tools button.active {
+      background: hsla(var(--base-hue), 60%, 60%, 0.6);
+      border-color: hsla(var(--base-hue), 60%, 60%, 0.6);
+      color: var(--colour-c1);
+    }
+    
+    /* Основная сцена */
+    .stage {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      user-select: none;
+      background: transparent;
+      z-index: 1;
+    }
+    
+    .stage figure {
+      display: flex;
+      gap: var(--spacing-sm);
+      transition: transform 0.2s ease-out;
+    }
+    
+    .stage img {
+      max-width: 100vw;
+      max-height: 100vh;
+      object-fit: contain;
+      pointer-events: none;
+    }
+    
+    /* Dual mode */
+    .stage figure.dual img {
+      max-width: 50vw;
+      max-height: 100vh;
+    }
+    
+    /* Long-list mode */
+    .stage.longlist {
+      align-items: flex-start;
+      justify-content: flex-start;
+      overflow-y: auto;
+      overflow-x: hidden;
+    }
+    
+    .longlist-container {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: var(--spacing-md) 0;
+    }
+    
+    .stage.longlist img {
+      width: 50%;
+      height: auto;
+      max-width: none;
+      max-height: none;
+      margin-bottom: var(--spacing-md);
+    }
+    
+    .loading {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      color: var(--colour-l3);
+    }
+    
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid rgba(255, 255, 255, 0.2);
+      border-top-color: #ffffff;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin-right: 12px;
+    }
+    
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <!-- Оверлей -->
+  <div class="overlay"></div>
+  
+  <!-- Кастомный header -->
+  <header class="title-bar">
+    <div class="title-bar-left">
+      <span id="bookTitle">Загрузка...</span>
+    </div>
+    <div class="title-bar-right">
+      <button class="title-button" id="minimizeBtn" title="Свернуть">−</button>
+      <button class="title-button" id="maximizeBtn" title="Развернуть">□</button>
+      <button class="title-button close" id="closeBtn" title="Закрыть">×</button>
+    </div>
+  </header>
+  
+  <!-- Навигация -->
+  <button class="nav left" id="prevBtn" style="display: none;">‹</button>
+  <button class="nav right" id="nextBtn" style="display: none;">›</button>
+  
+  <!-- Информационная панель -->
+  <div class="info" id="info">Загрузка...</div>
+  
+  <!-- Панель инструментов -->
+  <div class="tools" id="tools">
+    <button id="rotateBtn" title="Rotate">⟳</button>
+    <button id="dualBtn" title="Dual page">⚏</button>
+    <button id="longlistBtn" title="Long-list">☰</button>
+  </div>
+  
+  <!-- Контент -->
+  <main class="stage" id="stage">
+    <div class="loading">
+      <div class="spinner"></div>
+      <span>Загрузка...</span>
+    </div>
+  </main>
+  
+  <script src="reader.js"></script>
+</body>
+</html>

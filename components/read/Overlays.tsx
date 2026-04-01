@@ -2,7 +2,6 @@ import { useI18n } from "@/lib/i18n/I18nContext";
 import React from "react";
 import { StyleSheet, Text, View } from "react-native";
 import Animated from "react-native-reanimated";
-
 export function HintsOverlay({
   visible,
   isPhone,
@@ -21,9 +20,7 @@ export function HintsOverlay({
   handSwap: boolean;
 }) {
   const { t } = useI18n();
-
   if (!visible || !(hints.left || hints.center || hints.right)) return null;
-
   return (
     <View
       pointerEvents="none"
@@ -94,7 +91,6 @@ export function HintsOverlay({
     </View>
   );
 }
-
 export function Banner({
   banner,
   colors,
@@ -122,7 +118,6 @@ export function Banner({
     </Animated.View>
   );
 }
-
 const styles = StyleSheet.create({
   hintBox: {
     position: "absolute",

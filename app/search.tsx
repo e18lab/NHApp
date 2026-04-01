@@ -2,8 +2,8 @@ import { Feather } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import LoadingSpinner from "@/components/LoadingSpinner";
 import {
-  ActivityIndicator,
   Keyboard,
   Pressable,
   ScrollView,
@@ -12,8 +12,10 @@ import {
   TextInput,
   View,
 } from "react-native";
-
-import { Book, searchBooks } from "@/api/nhentai";
+import { requestStoragePush } from "@/api/nhappApi/cloudStorage";
+import type { Book } from "@/api/nhappApi/types";
+import { searchGalleries } from "@/api/v2";
+import { galleryCardToBook, buildV2Query } from "@/api/v2/compat";
 import SmartImage from "@/components/SmartImage";
 import { buildImageFallbacks } from "@/components/buildImageFallbacks";
 import { useDateRange } from "@/context/DateRangeContext";
@@ -21,11 +23,10 @@ import { useSort } from "@/context/SortContext";
 import { useFilterTags } from "@/context/TagFilterContext";
 import { useTheme } from "@/lib/ThemeContext";
 import { useI18n } from "@/lib/i18n/I18nContext";
-
+import { BROWSE_CARDS_PER_PAGE } from "@/utils/browseGridPageSize";
 const KEY_HISTORY = "searchHistory";
 const BAR_H = 52;
 const BTN_SIDE = 40;
-
 function IconBtn({
   onPress,
   onLongPress,
@@ -49,7 +50,6 @@ function IconBtn({
     </Pressable>
   );
 }
-
 function RowPress({
   onPress,
   children,
@@ -71,44 +71,35 @@ function RowPress({
     </Pressable>
   );
 }
-
 export default function SearchScreen() {
   const { colors } = useTheme();
   const { t } = useI18n();
   const router = useRouter();
-
   const { includes, excludes } = useFilterTags();
   const { sort } = useSort();
-
-  const { from: dateFrom, to: dateTo, clearRange } = useDateRange();
-  const dateFilterActive = !!dateFrom || !!dateTo;
-
+  const { uploaded, clearUploaded } = useDateRange();
+  const dateFilterActive = !!uploaded;
   const params = useLocalSearchParams<{ query?: string | string[] }>();
   const queryParam = typeof params.query === "string" ? params.query : "";
-
   const [q, setQ] = useState(queryParam);
   const [history, setHist] = useState<string[]>([]);
   const [suggests, setSug] = useState<Book[]>([]);
   const [loading, setLoad] = useState(false);
-
   const inputRef = useRef<TextInput>(null);
-
   useEffect(() => {
     AsyncStorage.getItem(KEY_HISTORY).then((j) => j && setHist(JSON.parse(j)));
   }, []);
-
   useEffect(() => {
     setQ(queryParam);
   }, [queryParam]);
-
   const saveHist = async (text: string) => {
     const clean = text.trim();
     if (!clean) return;
     const next = [clean, ...history.filter((h) => h !== clean)].slice(0, 10);
     setHist(next);
     await AsyncStorage.setItem(KEY_HISTORY, JSON.stringify(next));
+    requestStoragePush();
   };
-
   const submit = async (text = q) => {
     const query = text.trim();
     if (!query) return;
@@ -116,10 +107,8 @@ export default function SearchScreen() {
     Keyboard.dismiss();
     router.push({ pathname: "/explore", params: { query } });
   };
-
   const incStr = JSON.stringify(includes);
   const excStr = JSON.stringify(excludes);
-
   useEffect(() => {
     const query = q.trim();
     if (!query || dateFilterActive) {
@@ -130,21 +119,19 @@ export default function SearchScreen() {
     setLoad(true);
     const tmo = setTimeout(async () => {
       try {
-        const { books } = await searchBooks({
-          query,
-          perPage: 8,
+        const v2Query = buildV2Query(query, includes, excludes);
+        const res = await searchGalleries({
+          query: v2Query,
           sort,
-          includeTags: includes,
-          excludeTags: excludes,
+          per_page: BROWSE_CARDS_PER_PAGE,
         });
-        setSug(books);
+        setSug(res.result.map(galleryCardToBook));
       } finally {
         setLoad(false);
       }
     }, 250);
     return () => clearTimeout(tmo);
   }, [q, sort, incStr, excStr, dateFilterActive]);
-
   const trimmed = q.trim();
   const filteredHistory = useMemo(
     () =>
@@ -153,7 +140,6 @@ export default function SearchScreen() {
         : history,
     [history, trimmed]
   );
-
   return (
     <View style={[styles.container, { backgroundColor: colors.bg }]}>
       <View
@@ -166,11 +152,10 @@ export default function SearchScreen() {
           <IconBtn onPress={() => router.back()}>
             <Feather name="arrow-left" size={20} color={colors.searchTxt} />
           </IconBtn>
-
           <View
             style={[
               styles.inputWrap,
-              styles.rounded,
+              styles.searchInputRounded,
               { backgroundColor: colors.page, borderColor: colors.page },
             ]}
           >
@@ -206,13 +191,11 @@ export default function SearchScreen() {
               </Pressable>
             )}
           </View>
-
           <IconBtn onPress={() => router.push("/tags")}>
             <Feather name="tag" size={18} color={colors.accent} />
           </IconBtn>
         </View>
       </View>
-
       {trimmed.length > 0 && (
         <View
           style={{ paddingHorizontal: 12, paddingTop: 10, paddingBottom: 4 }}
@@ -223,7 +206,6 @@ export default function SearchScreen() {
           </Text>
         </View>
       )}
-
       <ScrollView
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
@@ -251,7 +233,6 @@ export default function SearchScreen() {
                 </Text>
               </Pressable>
             </View>
-
             {filteredHistory.map((item) => (
               <View key={item} style={styles.rowItem}>
                 <RowPress onPress={() => submit(item)}>
@@ -268,7 +249,6 @@ export default function SearchScreen() {
                     {item}
                   </Text>
                 </RowPress>
-
                 <Pressable
                   hitSlop={10}
                   style={({ pressed }) => [
@@ -282,6 +262,7 @@ export default function SearchScreen() {
                       KEY_HISTORY,
                       JSON.stringify(next)
                     );
+                    requestStoragePush();
                   }}
                 >
                   <Feather name="x" size={16} color={colors.sub} />
@@ -290,7 +271,6 @@ export default function SearchScreen() {
             ))}
           </>
         )}
-
         {trimmed.length > 0 && (
           <>
             <Text
@@ -304,7 +284,6 @@ export default function SearchScreen() {
             >
               {t("search.results")}
             </Text>
-
             {dateFilterActive ? (
               <View
                 style={[
@@ -340,7 +319,7 @@ export default function SearchScreen() {
                 >
                   Открой результаты или{" "}
                   <Text
-                    onPress={clearRange}
+                    onPress={clearUploaded}
                     style={{ color: colors.accent, fontWeight: "800" }}
                   >
                     сбрось даты
@@ -351,13 +330,11 @@ export default function SearchScreen() {
             ) : (
               <>
                 {loading && (
-                  <ActivityIndicator
+                  <LoadingSpinner
                     size="small"
                     color={colors.sub}
-                    style={{ marginVertical: 12 }}
                   />
                 )}
-
                 {!loading &&
                   suggests.map((b) => (
                     <RowPress
@@ -386,7 +363,6 @@ export default function SearchScreen() {
                       </View>
                     </RowPress>
                   ))}
-
                 {!loading && suggests.length === 0 && (
                   <Text
                     style={[
@@ -409,7 +385,6 @@ export default function SearchScreen() {
     </View>
   );
 }
-
 const styles = StyleSheet.create({
   container: { flex: 1 },
   topBar: {
@@ -417,9 +392,8 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   row: { flexDirection: "row", alignItems: "center" },
-
   rounded: { borderRadius: 12, overflow: "hidden" },
-
+  searchInputRounded: { borderRadius: 20, overflow: "hidden" },
   iconBtnRound: {
     width: BTN_SIDE,
     height: BTN_SIDE,
@@ -436,7 +410,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
   inputWrap: {
     flex: 1,
     height: 38,
@@ -447,7 +420,6 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
   },
   input: { flex: 1, fontSize: 15, paddingVertical: 0 },
-
   headRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -458,7 +430,6 @@ const styles = StyleSheet.create({
   pillBtn: { paddingHorizontal: 10, paddingVertical: 6 },
   pillBtnTxt: { fontSize: 11, fontWeight: "700" },
   headTxt: { fontSize: 11, letterSpacing: 0.5, fontWeight: "700" },
-
   rowItem: {
     flexDirection: "row",
     alignItems: "center",

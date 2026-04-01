@@ -1,9 +1,10 @@
 import NhModal from "@/components/nhModal";
 import { useTheme } from "@/lib/ThemeContext";
-import { Image as ExpoImage } from "expo-image";
+import ExpoImage from "@/components/ExpoImageCompat";
 import { VideoView, useVideoPlayer } from "expo-video";
 import React, { useMemo, useState } from "react";
 import {
+    Linking,
     Platform,
     ScrollView,
     StyleSheet,
@@ -23,7 +24,7 @@ type Block =
   | { type: "md"; text: string }
   | { type: "media"; src: string; kind: "image" | "video" };
 
-function splitNotesToBlocks(raw: string): Block[] {
+function splitNotesToBlocksImpl(raw: string): Block[] {
   const input = (raw || "")
     .replace(/\r\n/g, "\n")
     .replace(/([^\n])\s+(###\s+)/g, "$1\n\n$2");
@@ -86,6 +87,22 @@ function splitNotesToBlocks(raw: string): Block[] {
     if (tail && !/^[\s/>]+$/.test(tail)) out.push({ type: "md", text: tail });
   }
   return out;
+}
+
+export { splitNotesToBlocksImpl as splitNotesToBlocks };
+
+/** Makes bare URLs (https://..., http://..., discord.gg/...) clickable in markdown. */
+function wrapBareUrlsInMarkdown(text: string): string {
+  const str = typeof text === "string" ? text : String(text ?? "");
+  const urlRe = /(https?:\/\/[^\s<>\]()"\']+|discord\.gg\/[^\s<>\]()"\']+)/gi;
+  return str.replace(urlRe, (match, offsetOrP1: unknown) => {
+    const offset = typeof offsetOrP1 === "number" ? offsetOrP1 : 0;
+    const before = str.slice(0, offset);
+    const linkStart = before.lastIndexOf("](");
+    const linkEnd = linkStart >= 0 ? before.indexOf(")", linkStart) : -1;
+    if (linkStart !== -1 && (linkEnd === -1 || linkEnd > offset)) return match;
+    return `[${match}](${match})`;
+  });
 }
 
 function AutoImage({ uri, onError }: { uri: string; onError?: () => void }) {
@@ -163,7 +180,7 @@ export default function WhatsNewModal({
   notes: string;
 }) {
   const { colors } = useTheme();
-  const blocks = useMemo(() => splitNotesToBlocks(notes), [notes]);
+  const blocks = useMemo(() => splitNotesToBlocksImpl(notes), [notes]);
 
   const mdStyles = {
     body: { color: colors.txt, fontSize: 14, lineHeight: 20 },
@@ -216,9 +233,17 @@ export default function WhatsNewModal({
       >
         {blocks.map((b, i) => {
           if (b.type === "md") {
-            const text = b.text.replace(/\t/g, "  ");
+            const raw = b.text.replace(/\t/g, "  ");
+            const text = wrapBareUrlsInMarkdown(raw);
             return (
-              <Markdown key={i} style={mdStyles}>
+              <Markdown
+                key={i}
+                style={mdStyles}
+                onLinkPress={(url) => {
+                  Linking.openURL(url).catch(() => {});
+                  return true;
+                }}
+              >
                 {text}
               </Markdown>
             );
@@ -248,3 +273,56 @@ export default function WhatsNewModal({
 const styles = StyleSheet.create({
   wrap: { flex: 1 },
 });
+
+/** Renders release notes content (markdown + media). Use on a full-screen page. */
+export function WhatsNewNotesContent({ notes }: { notes: string }) {
+  const { colors } = useTheme();
+  const blocks = useMemo(() => splitNotesToBlocksImpl(notes), [notes]);
+  const mdStyles = {
+    body: { color: colors.txt, fontSize: 14, lineHeight: 20 },
+    heading1: { color: colors.txt, fontSize: 24, fontWeight: "800", marginBottom: 6 },
+    heading2: { color: colors.txt, fontSize: 20, fontWeight: "800", marginTop: 16, marginBottom: 6 },
+    heading3: { color: colors.txt, fontSize: 18, fontWeight: "800", marginTop: 14, marginBottom: 6 },
+    bullet_list: { marginVertical: 6 },
+    list_item: { marginVertical: 2 },
+    code_block: { backgroundColor: colors.tagBg, borderRadius: 8, padding: 8, color: colors.txt },
+    link: { color: colors.accent },
+    strong: { color: colors.txt, fontWeight: "800" },
+    em: { color: colors.txt },
+  } as const;
+  return (
+    <>
+      {blocks.map((b, i) => {
+        if (b.type === "md") {
+          const raw = b.text.replace(/\t/g, "  ");
+          const text = wrapBareUrlsInMarkdown(raw);
+          return (
+            <Markdown
+              key={i}
+              style={mdStyles}
+              onLinkPress={(url) => {
+                Linking.openURL(url).catch(() => {});
+                return true;
+              }}
+            >
+              {text}
+            </Markdown>
+          );
+        }
+        if (b.type === "media") {
+          return b.kind === "image" ? (
+            <AutoImage key={i} uri={b.src} />
+          ) : (
+            <VideoBlock key={i} uri={b.src} />
+          );
+        }
+        return null;
+      })}
+      {blocks.length === 0 && (
+          <View style={{ padding: 16 }}>
+          <Text style={{ color: colors.txt, opacity: 0.7 }}>Нет заметок к релизу.</Text>
+        </View>
+      )}
+    </>
+  );
+}

@@ -1,11 +1,11 @@
-import { Rect } from "@/api/characterCards";
-import { Book } from "@/api/nhentai";
+import { Rect } from "@/api/nhappApi/characterCards";
+import type { Book } from "@/api/nhappApi/types";
 import CharacterCropModal from "@/components/CharacterCropModal";
 import { useTheme } from "@/lib/ThemeContext";
 import { useI18n } from "@/lib/i18n/I18nContext";
 import { Feather } from "@expo/vector-icons";
 import { Picker } from "@react-native-picker/picker";
-import { Image as ExpoImage } from "expo-image";
+import ExpoImage from "@/components/ExpoImageCompat";
 import { useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
@@ -95,8 +95,9 @@ const EditCharacterCardModal: React.FC<EditCharacterCardModalProps> = ({
     let cancelled = false;
     const loadBook = async () => {
       try {
-        const { getBook } = await import("@/api/nhentai");
-        const book = await getBook(bookId);
+        const { getGallery } = await import("@/api/v2/galleries");
+        const { galleryToBook } = await import("@/api/v2/compat");
+        const book = galleryToBook(await getGallery(bookId));
         if (!cancelled) setBookInfo(book);
       } catch (err) {
         console.warn("Unable to download the book:", err);

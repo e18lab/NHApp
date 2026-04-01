@@ -1,30 +1,45 @@
 const { getDefaultConfig } = require('@expo/metro-config');
+const path = require('path');
 
 const config = getDefaultConfig(__dirname, {
-  // Enable CSS support for react-native-web
   isCSSEnabled: true,
 });
 
 config.transformer = {
   ...config.transformer,
-  // Use react-native-css-transformer for CSS files
-  babelTransformerPath: require.resolve('react-native-css-transformer'),
-  // Ensure other transformer options are preserved
+  babelTransformerPath: path.resolve(__dirname, 'metro-css-transformer-wrapper.js'),
   getTransformOptions: async () => ({
     transform: {
       experimentalImportSupport: false,
-      inlineRequires: false,
+      inlineRequires: true,
     },
   }),
 };
 
+
+const defaultResolveRequest = config.resolver.resolveRequest;
+
 config.resolver = {
   ...config.resolver,
-  // Add CSS to source extensions
   sourceExts: [...config.resolver.sourceExts, 'css'],
-  // Ignore native-only modules for web
+  platforms: ['ios', 'android', 'native', 'web'],
   extraNodeModules: {
-    'react-native/Libraries/Utilities/codegenNativeCommands': null,
+    'react-native/Libraries/Utilities/codegenNativeCommands': require.resolve('./InternalBytecode.js'),
+  },
+  resolveRequest: (context, moduleName, platform) => {
+    if (platform === 'web' && moduleName === 'react-native-worklets') {
+      return {
+        type: 'sourceFile',
+        filePath: require.resolve('./worklets.web.js'),
+      };
+    }
+    if (defaultResolveRequest) {
+      try {
+        return defaultResolveRequest(context, moduleName, platform);
+      } catch (e) {
+      }
+    }
+    return context.resolveRequest(context, moduleName, platform);
   },
 };
 

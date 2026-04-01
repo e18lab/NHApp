@@ -1,16 +1,36 @@
 import { Feather } from "@expo/vector-icons";
 import { useGlobalSearchParams, usePathname, useRouter } from "expo-router";
-import React, { useEffect, useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import Animated from "react-native-reanimated";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import {
+    Animated,
+    Easing,
+    Platform,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
+    View,
+} from "react-native";
 
-import DateRangePicker from "@/components/DateRangePicker";
+import {
+    getLobbyRole,
+    subscribeToLobbyPeersCount,
+    subscribeToLobbyPeersDevices,
+    subscribeToLobbyRole,
+    type LobbyPeerDevice,
+} from "@/api/nhappApi/lobbyStorage";
+import { CalendarRangePicker } from "@/components/CalendarRangePicker";
 import { useDrawer } from "@/components/DrawerContext";
 import NhModal from "@/components/nhModal";
+import type { SelectItem } from "@/components/uikit/FilterDropdown";
+import { FilterDropdown } from "@/components/uikit/FilterDropdown";
 import { useDateRange } from "@/context/DateRangeContext";
 import { SortKey, useSort } from "@/context/SortContext";
+import { useOnlineMe } from "@/hooks/useOnlineMe";
 import { useTheme } from "@/lib/ThemeContext";
 import { useI18n } from "@/lib/i18n/I18nContext";
+import { getDeviceId } from "@/utils/deviceId";
+import { useTopBarAction } from "@/context/TopBarActionContext";
 
 const BAR_HEIGHT = 52;
 const BTN_SIDE = 40;
@@ -23,10 +43,12 @@ function hasSeg(pathname: string | null | undefined, seg: string) {
 function IconBtn({
   onPress,
   onLongPress,
+  disabled,
   children,
 }: {
   onPress?: () => void;
   onLongPress?: () => void;
+  disabled?: boolean;
   children: React.ReactNode;
 }) {
   const { colors } = useTheme();
@@ -34,9 +56,11 @@ function IconBtn({
     <Pressable
       onPress={onPress}
       onLongPress={onLongPress}
+      disabled={disabled}
       style={({ pressed }) => [
         styles.iconBtnRound,
-        pressed && { backgroundColor: colors.accent + "22" },
+        (pressed && !disabled) && { backgroundColor: colors.accent + "22" },
+        disabled && { opacity: 0.6 },
       ]}
     >
       {children}
@@ -44,62 +68,6 @@ function IconBtn({
   );
 }
 
-function SectionTitle({ children }: { children: React.ReactNode }) {
-  const { colors } = useTheme();
-  return (
-    <Text
-      style={{
-        color: colors.searchTxt,
-        opacity: 0.8,
-        marginTop: 8,
-        marginBottom: 6,
-        fontWeight: "800",
-        letterSpacing: 0.3,
-      }}
-    >
-      {children}
-    </Text>
-  );
-}
-
-function Chip({
-  label,
-  selected,
-  onPress,
-  icon,
-}: {
-  label: string;
-  selected?: boolean;
-  onPress?: () => void;
-  icon?: React.ReactNode;
-}) {
-  const { colors } = useTheme();
-  return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.chip,
-        {
-          backgroundColor: selected ? colors.accent : colors.page,
-          borderColor: selected ? colors.accent : colors.page,
-          opacity: pressed ? 0.85 : 1,
-        },
-      ]}
-    >
-      <View style={styles.chipInner}>
-        {icon ? <View style={{ marginRight: 6 }}>{icon}</View> : null}
-        <Text
-          style={{
-            color: selected ? colors.bg : colors.searchTxt,
-            fontWeight: selected ? "800" : "600",
-          }}
-        >
-          {label}
-        </Text>
-      </View>
-    </Pressable>
-  );
-}
 
 export function SearchBar() {
   const { colors } = useTheme();
@@ -107,8 +75,39 @@ export function SearchBar() {
   const { sort, setSort } = useSort();
   const router = useRouter();
   const pathname = usePathname();
-  const { from, to, setRange, clearRange } = useDateRange();
+  const { action } = useTopBarAction();
+  const {
+    uploaded,
+    customRangeLabel,
+    lastCustomFrom,
+    lastCustomTo,
+    setUploaded,
+    setCustomRangeApplied,
+    clearUploaded,
+  } = useDateRange();
   const { t } = useI18n();
+  const me = useOnlineMe();
+  const [lobbyPeersCount, setLobbyPeersCount] = useState(0);
+  const [lobbyPeersDevices, setLobbyPeersDevices] = useState<LobbyPeerDevice[]>([]);
+  const [lobbyRole, setLobbyRole] = useState<"sender" | "receiver" | null>(() => getLobbyRole());
+  const [currentDeviceId, setCurrentDeviceId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const unsub = subscribeToLobbyPeersCount(setLobbyPeersCount);
+    return unsub;
+  }, []);
+  useEffect(() => {
+    const unsub = subscribeToLobbyPeersDevices(setLobbyPeersDevices);
+    return unsub;
+  }, []);
+  useEffect(() => {
+    getDeviceId().then(setCurrentDeviceId).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const unsub = subscribeToLobbyRole(() => setLobbyRole(getLobbyRole()));
+    return unsub;
+  }, []);
 
   const PRESETS: {
     key: SortKey;
@@ -176,12 +175,12 @@ export function SearchBar() {
       return q ? t("menu.search") + ": " + q : t("menu.search");
     if (has("tags")) return t("menu.tags");
     if (has("profile")) return `${t("menu.profile")}: ${userName}`;
-    return "NH App";
+    return "NHApp";
   }
 
-  const [sortOpen, setSortOpen] = useState(false);
   const [backOpen, setBackOpen] = useState(false);
-  const [dateModalOpen, setDateModalOpen] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const rotationAnim = useRef(new Animated.Value(0)).current;
 
   const title = useMemo(
     () => getTitle(pathname, q, bookTitle, bookId),
@@ -198,8 +197,8 @@ export function SearchBar() {
     hasSeg(pathname, "favorites") ||
     hasSeg(pathname, "favoritesOnline");
 
-  const closeSort = () => setSortOpen(false);
-  const openSort = () => setSortOpen(true);
+  const hideSearchFilter = hasSeg(pathname, "recommendations");
+
 
   const backOne = () => {
     setBackOpen(false);
@@ -215,15 +214,174 @@ export function SearchBar() {
     router.replace("/");
   };
 
-  const fmt = (d?: any) => (d ? new Date(d).toLocaleDateString() : "—");
-  const rangeLabel = useMemo(() => `${fmt(from)}  •  ${fmt(to)}`, [from, to]);
-  const hasDateFilter = !!from || !!to;
+  const hasDateFilter = !!uploaded;
+
+  /** "Within last X" — use uploaded:<X so API returns only recent content */
+  const DATE_PRESETS: { value: string; label: string }[] = [
+    { value: "<1h", label: t("explore.date.1h") || "1 час" },
+    { value: "<24h", label: t("explore.date.24h") || "24 часа" },
+    { value: "<3d", label: t("explore.date.3d") || "3 дня" },
+    { value: "<7d", label: t("explore.date.7d") || "Неделя" },
+    { value: "<30d", label: t("explore.date.30d") || "Месяц" },
+    { value: "<90d", label: t("explore.date.90d") || "3 месяца" },
+    { value: "<180d", label: t("explore.date.180d") || "6 месяцев" },
+    { value: "<365d", label: t("explore.date.1y") || "Год" },
+  ];
+
+  const dayMs = 24 * 60 * 60 * 1000;
+
+  const applyCalendarRange = (fromDate: Date, toDate: Date) => {
+    const now = Date.now();
+    const fromDaysAgo = Math.floor((now - fromDate.getTime()) / dayMs);
+    const toDaysAgo = Math.floor((now - toDate.getTime()) / dayMs);
+    const rangeQuery = `uploaded:>${toDaysAgo - 1}d uploaded:<${fromDaysAgo + 1}d`;
+    const fromStr = fromDate.getDate().toString().padStart(2, "0") + "." + (fromDate.getMonth() + 1).toString().padStart(2, "0") + "." + fromDate.getFullYear();
+    const toStr = toDate.getDate().toString().padStart(2, "0") + "." + (toDate.getMonth() + 1).toString().padStart(2, "0") + "." + toDate.getFullYear();
+    setCustomRangeApplied(
+      rangeQuery,
+      `${fromStr} – ${toStr}`,
+      fromDate.toISOString().slice(0, 10),
+      toDate.toISOString().slice(0, 10)
+    );
+  };
+
+  const dateSubmenuItems: SelectItem[] = [
+    {
+      type: "submenu" as const,
+      label: t("explore.date.customRange") || "Указать даты…",
+      icon: (c: string) => <Feather name="calendar" size={15} color={c} />,
+      children: [
+        {
+          type: "custom" as const,
+          label: t("explore.dateRangeCustom") || "Диапазон дат",
+          backLabel: t("explore.date.backToDateList") || "Назад к выбору дат",
+          content: ({ onClose, openSubmenu }) => (
+            <CalendarRangePicker
+              onApply={applyCalendarRange}
+              onClose={onClose}
+              onReset={() => {
+                clearUploaded();
+                onClose();
+              }}
+              openSubmenu={openSubmenu}
+              initialFrom={lastCustomFrom}
+              initialTo={lastCustomTo}
+            />
+          ),
+        },
+      ],
+    },
+    ...DATE_PRESETS.map(({ value: v, label }) => ({
+      value: v,
+      label,
+    })),
+  ];
+
+  const uploadedLabel =
+    DATE_PRESETS.find((p) => p.value === uploaded)?.label ??
+    (uploaded && uploaded.startsWith("uploaded:")
+      ? (customRangeLabel || (t("explore.dateRangeCustom") || "Диапазон дат"))
+      : null);
+
+  const lobbyDevicesDropdownItems: SelectItem[] = useMemo(
+    () => [
+      { type: "group" as const, label: t("lobby.peersTitle") || "Устройства в лобби" },
+      ...(lobbyPeersDevices.length === 0
+        ? [{ value: "_empty", label: t("lobby.noPeers") || "Нет подключённых устройств" }]
+        : lobbyPeersDevices.map((d) => {
+            const isThisDevice = d.device_id === currentDeviceId;
+            const roleIcon =
+              isThisDevice && lobbyRole
+                ? lobbyRole === "sender"
+                  ? (c: string) => <Feather name="arrow-up" size={18} color={c} />
+                  : (c: string) => <Feather name="arrow-down" size={18} color={c} />
+                : () => <View style={{ width: 18, height: 18 }} />;
+            return {
+              value: d.device_id,
+              label: d.device_name || d.device_id || "—",
+              icon: (c: string) => <Feather name="smartphone" size={18} color={c} />,
+              trailingIcon: roleIcon,
+            };
+          })),
+    ],
+    [lobbyPeersDevices, currentDeviceId, lobbyRole, t]
+  );
+
+  const sortSelectItems: SelectItem[] = [
+    ...PRESETS.map(({ key, label, icon }) => ({
+      value: key,
+      label,
+      icon: icon
+        ? (c: string) => <Feather name={icon as any} size={15} color={c} />
+        : undefined,
+    })),
+    {
+      type: "submenu" as const,
+      label: hasDateFilter && uploadedLabel ? uploadedLabel : (t("explore.dateRange") || "Фильтр по дате"),
+      backLabel: t("explore.date.back") || "Назад",
+      icon: (c: string) => <Feather name="calendar" size={15} color={c} />,
+      children: dateSubmenuItems,
+    },
+  ];
+
 
   useEffect(() => {
-    if (hasDateFilter && sort !== "date") {
-      setSort("date");
-    }
-  }, [hasDateFilter]);
+    if (Platform.OS !== "web") return;
+
+    const handleRefreshStart = () => {
+      setIsRefreshing(true);
+      rotationAnim.setValue(0);
+      const loopAnim = Animated.loop(
+        Animated.timing(rotationAnim, {
+          toValue: 1,
+          duration: 1000,
+          easing: Easing.linear,
+          useNativeDriver: false, 
+        })
+      );
+      loopAnim.start();
+      (rotationAnim as any)._loopAnim = loopAnim;
+    };
+
+    const handleRefreshEnd = () => {
+      setIsRefreshing(false);
+      const loopAnim = (rotationAnim as any)._loopAnim;
+      if (loopAnim) {
+        loopAnim.stop();
+        delete (rotationAnim as any)._loopAnim;
+      }
+      rotationAnim.stopAnimation();
+      Animated.timing(rotationAnim, {
+        toValue: 0,
+        duration: 200,
+        easing: Easing.ease,
+        useNativeDriver: false,
+      }).start();
+    };
+
+    globalThis.addEventListener?.("app:refresh-content-start", handleRefreshStart);
+    globalThis.addEventListener?.("app:refresh-content-end", handleRefreshEnd);
+
+    return () => {
+      globalThis.removeEventListener?.("app:refresh-content-start", handleRefreshStart);
+      globalThis.removeEventListener?.("app:refresh-content-end", handleRefreshEnd);
+      const loopAnim = (rotationAnim as any)._loopAnim;
+      if (loopAnim) {
+        loopAnim.stop();
+      }
+      rotationAnim.stopAnimation();
+    };
+  }, [rotationAnim]);
+
+  const refreshIconStyle = useMemo(() => {
+    const rotate = rotationAnim.interpolate({
+      inputRange: [0, 1],
+      outputRange: ["0deg", "360deg"],
+    });
+    return {
+      transform: [{ rotate }],
+    };
+  }, [rotationAnim]);
 
   return (
     <View>
@@ -257,142 +415,134 @@ export function SearchBar() {
           {title}
         </Text>
 
-        {!hideRight && (
+        {(!hideRight || action) && (
           <View style={styles.rightGroup}>
-            <IconBtn
-              onPress={() =>
-                router.push({
-                  pathname: "/search",
-                  params: q ? { query: q } : {},
-                })
-              }
-            >
-              <Feather name="search" size={18} color={colors.searchTxt} />
-            </IconBtn>
+            {action ? (
+              <Pressable
+                onPress={action.onPress}
+                disabled={action.disabled}
+                style={({ pressed }) => [
+                  styles.actionBtn,
+                  {
+                    borderColor:
+                      (action.kind ?? "default") === "primary"
+                        ? colors.accent + "55"
+                        : colors.page + "55",
+                    backgroundColor: colors.searchBg,
+                    opacity: action.disabled ? 0.55 : pressed ? 0.8 : 1,
+                  },
+                ]}
+              >
+                <Text style={[styles.actionBtnText, { color: colors.searchTxt }]}>
+                  {action.label}
+                </Text>
+              </Pressable>
+            ) : null}
+            {!hideRight ? (
+              <>
+                {me && (
+                  <FilterDropdown
+                    value={undefined}
+                    options={lobbyDevicesDropdownItems}
+                    keepOpen
+                    trigger={({ onPress }) => (
+                      <Pressable
+                        onPress={onPress}
+                        style={({ pressed }) => [styles.lobbyBadgeWrap, pressed && { opacity: 0.8 }]}
+                      >
+                        <Feather name="users" size={18} color={colors.searchTxt} />
+                        {lobbyPeersCount > 0 && (
+                          <View style={[styles.lobbyBadge, { backgroundColor: colors.accent }]}>
+                            <Text style={styles.lobbyBadgeText} numberOfLines={1}>
+                              {lobbyPeersCount > 99 ? "99+" : lobbyPeersCount}
+                            </Text>
+                          </View>
+                        )}
+                        {lobbyRole === "sender" && (
+                          <Feather
+                            name="arrow-up"
+                            size={12}
+                            color={colors.accent}
+                            style={styles.lobbyRoleIcon}
+                          />
+                        )}
+                        {lobbyRole === "receiver" && (
+                          <Feather
+                            name="arrow-down"
+                            size={12}
+                            color={colors.accent}
+                            style={styles.lobbyRoleIcon}
+                          />
+                        )}
+                      </Pressable>
+                    )}
+                  />
+                )}
+                {Platform.OS === "web" && (
+                  <IconBtn
+                    onPress={() => {
+                      if (isRefreshing) return; 
+                      if (typeof globalThis !== "undefined") {
+                        globalThis.dispatchEvent?.(
+                          new globalThis.CustomEvent("app:refresh-content")
+                        );
+                      }
+                    }}
+                    disabled={isRefreshing}
+                  >
+                    <Animated.View style={refreshIconStyle}>
+                      <Feather 
+                        name="refresh-cw" 
+                        size={18} 
+                        color={isRefreshing ? colors.accent : colors.searchTxt}
+                      />
+                    </Animated.View>
+                  </IconBtn>
+                )}
 
-            <IconBtn onPress={openSort}>
-              <Feather name="filter" size={18} color={colors.accent} />
-            </IconBtn>
+                {!hideSearchFilter && (
+                  <IconBtn
+                    onPress={() => {
+                      router.push({
+                        pathname: "/search",
+                        params: q ? { query: q } : {},
+                      });
+                    }}
+                  >
+                    <Feather name="search" size={18} color={colors.searchTxt} />
+                  </IconBtn>
+                )}
 
-            <IconBtn onPress={() => router.push("/tags")}>
-              <Feather name="tag" size={18} color={colors.accent} />
-            </IconBtn>
+                {!hideSearchFilter && (
+                  <FilterDropdown
+                    value={uploaded ?? sort}
+                    secondaryValue={uploaded ? sort : undefined}
+                    onChange={(val) => {
+                      const isDatePreset = DATE_PRESETS.some((p) => p.value === val);
+                      if (isDatePreset) {
+                        setUploaded(val === uploaded ? null : val);
+                      } else {
+                        setSort(val as SortKey);
+                      }
+                    }}
+                    options={sortSelectItems}
+                    keepOpen
+                    trigger={({ onPress }) => (
+                      <IconBtn onPress={onPress}>
+                        <Feather name="filter" size={18} color={colors.accent} />
+                      </IconBtn>
+                    )}
+                  />
+                )}
+
+                <IconBtn onPress={() => router.push("/tags")}>
+                  <Feather name="tag" size={18} color={colors.accent} />
+                </IconBtn>
+              </>
+            ) : null}
           </View>
         )}
       </Animated.View>
-
-      <NhModal
-        visible={sortOpen}
-        onClose={closeSort}
-        dimBackground
-        sheetStyle={{
-          backgroundColor: colors.searchBg,
-          borderColor: colors.page,
-        }}
-        title={t("explore.sortBy") || "Сортировка и дата"}
-        hint={
-          hasDateFilter
-            ? t("explore.dateRange")
-            : t("common.chooseOption") || "Выберите вариант"
-        }
-      >
-        <ScrollView
-          style={styles.sheetScroll}
-          contentContainerStyle={{ paddingVertical: 8, paddingHorizontal: 8 }}
-          showsVerticalScrollIndicator={false}
-        >
-          {!hasDateFilter && (
-            <View>
-              <SectionTitle>
-                {t("explore.quickPeriod")}
-              </SectionTitle>
-              <View style={styles.chipsWrap}>
-                {PRESETS.map(({ key, label, icon }) => (
-                  <Chip
-                    key={key}
-                    label={label}
-                    selected={sort === key}
-                    onPress={() => {
-                      if (from || to) clearRange();
-                      setSort(key);
-                      closeSort();
-                    }}
-                    icon={
-                      icon ? (
-                        <Feather
-                          name={icon as any}
-                          size={14}
-                          color={sort === key ? colors.bg : colors.searchTxt}
-                        />
-                      ) : undefined
-                    }
-                  />
-                ))}
-              </View>
-            </View>
-          )}
-
-          <View style={{ marginTop: 4 }}>
-            <SectionTitle>
-              {(t("explore.dateRange")) +
-                (hasDateFilter ? ` — ${rangeLabel}` : "")}
-            </SectionTitle>
-
-            <View style={styles.row}>
-              <Pressable
-                style={[
-                  styles.rowBtn,
-                  styles.rounded,
-                  { backgroundColor: colors.page },
-                ]}
-                onPress={() => setDateModalOpen(true)}
-              >
-                <View style={styles.rowBtnInner}>
-                  <Feather name="calendar" size={16} color={colors.accent} />
-                  <Text style={[styles.rowBtnTxt, { color: colors.searchTxt }]}>
-                    {hasDateFilter
-                      ? rangeLabel
-                      : t("common.select")}
-                  </Text>
-                </View>
-              </Pressable>
-
-              {hasDateFilter && (
-                <Pressable
-                  style={[
-                    styles.rowBtn,
-                    styles.rounded,
-                    { backgroundColor: colors.page },
-                  ]}
-                  onPress={() => {
-                    clearRange();
-                  }}
-                >
-                  <View style={styles.rowBtnInner}>
-                    <Feather name="x-circle" size={16} color={colors.accent} />
-                    <Text
-                      style={[
-                        styles.rowBtnTxt,
-                        { color: colors.accent, fontWeight: "800" },
-                      ]}
-                    >
-                      {t("common.reset")}
-                    </Text>
-                  </View>
-                </Pressable>
-              )}
-            </View>
-          </View>
-        </ScrollView>
-
-        <View style={styles.sheetFooterHint}>
-          <Text style={{ color: colors.searchTxt, opacity: 0.6, fontSize: 12 }}>
-            {hasDateFilter
-              ? t("explore.hintDatesActive")
-              : t("explore.hintPresets")}
-          </Text>
-        </View>
-      </NhModal>
 
       <NhModal
         visible={backOpen}
@@ -429,29 +579,6 @@ export function SearchBar() {
         </ScrollView>
       </NhModal>
 
-      <NhModal
-        visible={dateModalOpen}
-        onClose={() => setDateModalOpen(false)}
-        sheetStyle={{
-          backgroundColor: colors.searchBg,
-          borderColor: colors.page,
-        }}
-        title={t("explore.datePickerTitle")}
-      >
-        <DateRangePicker
-          initialFrom={from ? new Date(from as any) : null}
-          initialTo={to ? new Date(to as any) : null}
-          onClear={() => {
-            clearRange();
-            setDateModalOpen(false);
-          }}
-          onApply={({ from: f, to: t }) => {
-            setRange(f ?? null, t ?? null);
-            setSort("date");
-            setDateModalOpen(false);
-          }}
-        />
-      </NhModal>
     </View>
   );
 }
@@ -465,6 +592,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     elevation: 4,
     borderBottomWidth: StyleSheet.hairlineWidth,
+    overflow: "hidden",
     zIndex: 20,
   },
   title: {
@@ -480,6 +608,18 @@ const styles = StyleSheet.create({
     gap: 2,
     marginLeft: 6,
   },
+  actionBtn: {
+    height: 34,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    justifyContent: "center",
+    marginRight: 6,
+  },
+  actionBtnText: {
+    fontSize: 13,
+    fontWeight: "800",
+  },
   iconBtnRound: {
     width: BTN_SIDE,
     height: BTN_SIDE,
@@ -487,6 +627,33 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
+  },
+  lobbyBadgeWrap: {
+    width: BTN_SIDE,
+    height: BTN_SIDE,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  lobbyBadge: {
+    position: "absolute",
+    top: 2,
+    right: 2,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 4,
+  },
+  lobbyBadgeText: {
+    color: "#fff",
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  lobbyRoleIcon: {
+    position: "absolute",
+    bottom: 0,
+    alignSelf: "center",
   },
 
   sheetScroll: {},
@@ -500,47 +667,6 @@ const styles = StyleSheet.create({
   },
   sortTxt: { fontSize: 15 },
 
-  chipsWrap: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  chip: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 100,
-  },
-  chipInner: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-  },
-
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginTop: 6,
-  },
-  rowBtn: {
-    flex: 1,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  rowBtnInner: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-  },
-  rowBtnTxt: { fontSize: 15, fontWeight: "700", letterSpacing: 0.3 },
-
-  sheetFooterHint: {
-    paddingHorizontal: 12,
-    paddingTop: 6,
-    paddingBottom: 12,
-  },
 });
 
 export default SearchBar;

@@ -4,7 +4,6 @@ import type { MenuRoute } from "@/types/routes";
 import { Feather } from "@expo/vector-icons";
 import React from "react";
 import { StyleSheet, Text, View } from "react-native";
-
 export const LibraryMenuList = React.memo(function LibraryMenuList({
   items,
   pathname,
@@ -33,7 +32,6 @@ export const LibraryMenuList = React.memo(function LibraryMenuList({
           ? colors.accent
           : colors.menuTxt;
         const bg = active ? colors.accent + "14" : colors.tagBg;
-
         return (
           <CardPressable
             key={item.route}
@@ -75,7 +73,6 @@ export const LibraryMenuList = React.memo(function LibraryMenuList({
     </View>
   );
 });
-
 const styles = StyleSheet.create({
   row: {
     flexDirection: "row",

@@ -1,9 +1,12 @@
 # Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
 
+.claude
+.cursor
+.env
+.env.local
+
 # dependencies
 node_modules/*
-
-api/*
 !api/online
 !api/nhentai-tags.json
 !api/nhentai.ts
@@ -17,6 +20,20 @@ api/*
 dist/
 web-build/
 expo-env.d.ts
+ELECTRON_SETUP.md
+
+
+# Electron
+electron-dist/
+electron-build/
+*.dmg
+*.exe
+*.AppImage
+*.deb
+*.rpm
+*.snap
+*.zip
+*.tar.gz
 
 # Native
 .kotlin/

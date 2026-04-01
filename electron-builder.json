@@ -1,0 +1,72 @@
+{
+  "appId": "com.nhapp.electron",
+  "productName": "NHApp",
+  "directories": {
+    "output": "electron-dist",
+    "buildResources": "electron-build"
+  },
+  "files": [
+    "dist/**/*",
+    "electron/**/*",
+    "package.json",
+    "!node_modules/**/*",
+    "assets/images/icon.png",
+    "node_modules/@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/*.ttf"
+  ],
+  "asar": true,
+  "asarUnpack": [
+    "electron/preload.js",
+    "electron/reader-preload.js",
+    "node_modules/@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/*.ttf"
+  ],
+  "compression": "maximum",
+  "removePackageScripts": true,
+  "extraMetadata": {
+    "main": "electron/main.js",
+    "dependencies": {}
+  },
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64"]
+      }
+    ],
+    "icon": "assets/images/icon.png",
+    "artifactName": "${productName}-${version}-${arch}.${ext}",
+    "sign": false,
+    "signDlls": false,
+    "verifyUpdateCodeSignature": false
+  },
+  "linux": {
+    "target": [
+      {
+        "target": "AppImage",
+        "arch": ["x64"]
+      },
+      {
+        "target": "deb",
+        "arch": ["x64"]
+      }
+    ],
+    "icon": "assets/images/icon.png",
+    "category": "Utility",
+    "artifactName": "${productName}-${version}-${arch}.${ext}"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "allowElevation": true,
+    "perMachine": false,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "menuCategory": false,
+    "shortcutName": "NHApp",
+    "deleteAppDataOnUninstall": false,
+    "runAfterFinish": true,
+    "differentialPackage": true
+  },
+  "portable": {
+    "artifactName": "${productName}-${version}-portable.${ext}"
+  }
+}

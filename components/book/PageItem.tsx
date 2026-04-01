@@ -1,6 +1,6 @@
-import { Image as ExpoImage } from "expo-image";
+import ExpoImage from "@/components/ExpoImageCompat";
 import React, { memo } from "react";
-import { Pressable, Text } from "react-native";
+import { Pressable, Text, View } from "react-native";
 
 export const GAP = 10;
 
@@ -10,39 +10,74 @@ export const PageItem = memo(
     itemW,
     cols,
     metaColor,
-    onPress,
+    onOpenPage,
+    showBackground = false,
   }: {
-    page: { page: number; url: string; width: number; height: number };
+    page: { page: number; url: string; urlThumb?: string; width: number; height: number };
     itemW: number;
     cols: number;
     metaColor: string;
-    onPress: () => void;
+    /** Стабильная ссылка из useCallback — иначе memo ниже отрезает обновления router */
+    onOpenPage: (pageNum: number) => void;
+    showBackground?: boolean;
   }) {
     const isGrid = cols > 1;
 
+    const aspectRatio = page.width / page.height;
+
+    const isVertical = page.height > page.width;
+
+    const isSuperLong = isVertical && page.height > page.width * 3;
+
+    const maxHeight = isSuperLong ? itemW * 2.5 : undefined;
+
+    const imageHeight = maxHeight
+      ? Math.min(itemW / aspectRatio, maxHeight)
+      : itemW / aspectRatio;
+
+    const containerHeight = imageHeight;
+
     return (
-      <Pressable
-        onPress={onPress}
+      <View
         style={{
           width: itemW,
           marginBottom: GAP,
           marginHorizontal: isGrid ? GAP / 2 : 0,
+          alignItems: "center",
+          flex: isGrid ? 1 : undefined,
         }}
       >
-        <ExpoImage
-          source={{ uri: page.url }}
-          style={
-            isGrid
-              ? { width: itemW, height: itemW, borderRadius: 10 }
-              : {
-                  width: itemW,
-                  aspectRatio: page.width / page.height,
-                  borderRadius: 10,
-                }
-          }
-          contentFit={isGrid ? "cover" : "contain"}
-          cachePolicy="disk"
-        />
+        <Pressable
+          onPress={() => onOpenPage(page.page)}
+          style={{
+            width: "100%",
+            flex: isGrid ? 1 : undefined,
+            minHeight: containerHeight,
+            height: containerHeight, 
+            alignItems: "center",
+            justifyContent: "center",
+            position: "relative",
+            borderRadius: 10,
+            overflow: "hidden",
+            backgroundColor: "rgba(20, 20, 20, 0.8)", 
+          }}
+        >
+          {}
+          <ExpoImage
+            source={{ uri: page.url }}
+            style={{
+              width: itemW,
+              height: imageHeight,
+              zIndex: 1,
+            }}
+            contentFit="contain"
+            cachePolicy="disk"
+            responsivePolicy="static"
+            priority="normal"
+          />
+        </Pressable>
+
+        {}
         <Text
           style={{
             color: metaColor,
@@ -53,15 +88,18 @@ export const PageItem = memo(
         >
           {page.page}
         </Text>
-      </Pressable>
+      </View>
     );
   },
   (a, b) =>
+    a.onOpenPage === b.onOpenPage &&
     a.page.url === b.page.url &&
+    a.page.urlThumb === b.page.urlThumb &&
     a.page.page === b.page.page &&
     a.itemW === b.itemW &&
     a.cols === b.cols &&
-    a.metaColor === b.metaColor
+    a.metaColor === b.metaColor &&
+    a.showBackground === b.showBackground
 );
 
 export default PageItem;
