@@ -311,7 +311,6 @@ function AppContent() {
           <Stack.Screen name="book/[id]" />
           <Stack.Screen name="profile/[id]/[slug]" />
           <Stack.Screen name="profile/[id]/edit" />
-          <Stack.Screen name="profile/[id]/blacklist" />
           <Stack.Screen name="read" />
           <Stack.Screen name="downloaded" />
           <Stack.Screen name="recommendations" />
