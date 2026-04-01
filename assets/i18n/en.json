@@ -166,7 +166,7 @@
   },
   "historyNotFound": "History is empty ¯\\_(ツ)_/¯",
   "lobby": {
-    "peersTitle": "Devices in lobby",
+    "peersTitle": "Your devices",
     "noPeers": "No connected devices"
   },
   "profile": {

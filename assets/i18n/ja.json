@@ -166,7 +166,7 @@
   },
   "historyNotFound": "履歴は空です ¯\\_(ツ)_/¯",
   "lobby": {
-    "peersTitle": "ロビーのデバイス",
+    "peersTitle": "あなたのデバイス",
     "noPeers": "接続されたデバイスはありません"
   },
   "profile": {

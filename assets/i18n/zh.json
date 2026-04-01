@@ -166,7 +166,7 @@
   },
   "historyNotFound": "历史为空 ¯\\_(ツ)_/¯",
   "lobby": {
-    "peersTitle": "大厅中的设备",
+    "peersTitle": "你的设备",
     "noPeers": "没有已连接的设备"
   },
   "profile": {
