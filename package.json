@@ -120,7 +120,7 @@
     "@types/react": "~19.1.10",
     "@types/react-native": "^0.72.8",
     "cross-env": "^7.0.3",
-    "electron": "^35.7.5",
+    "electron": "^39.8.5",
     "electron-builder": "^25.1.8",
     "eslint": "^9.25.0",
     "eslint-config-expo": "~10.0.0",
